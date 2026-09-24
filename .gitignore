@@ -1,0 +1,13 @@
+node_modules/
+server/dist/
+web/dist/
+docs/_site/
+*.log
+# cópia duplicada criada ao mover a pasta da sessão
+/folha-esocial/
+# dados locais nunca devem ir para o controle de versão
+*.db
+*.db-*
+*.folhabak
+chave.dpapi
+chave.local

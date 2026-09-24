@@ -1,0 +1,10 @@
+Arquivos SINTÉTICOS para teste (nenhum dado real).
+
+- 1 empresa fictícia, 4 trabalhadores fictícios, competências 06 a 08/2026
+- S-1200 de 07/2026 do trabalhador 1 retificado (o original fica como "retificado")
+- S-2230 enviado por engano e excluído por S-3000
+- Férias da trabalhadora 2 em 07/2026 (demonstrativo próprio)
+- Rescisão sem justa causa do trabalhador 3 em 20/08/2026 com aviso indenizado
+- Aprendiz (FGTS 2%) admitido em 10/06/2026
+- Divergência proposital: líquido pago (S-1210) do trabalhador 1 em 08/2026 com R$ 10,00 a mais
+- Evento ausente proposital: aprendiz sem S-1210 da folha de 08/2026; competência 08/2026 sem S-1299

@@ -1,0 +1,21 @@
+{
+  "name": "folha-esocial-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema local de relatórios de folha a partir de XMLs do eSocial (prévia para conferência profissional)",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20.19.0 <25"
+  },
+  "scripts": {
+    "setup": "npm install && npm run build",
+    "build": "npm run build -w server && npm run build -w web",
+    "start": "node server/dist/index.js",
+    "dev": "node scripts/dev.mjs",
+    "test": "npm test -w server",
+    "gerar-exemplos": "npm run gerar-exemplos -w server"
+  }
+}

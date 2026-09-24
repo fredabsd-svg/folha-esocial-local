@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Folha eSocial Local — relatórios de folha a partir dos XMLs do eSocial</title>
+  <meta name="description" content="Aplicação local e gratuita que lê os XMLs do eSocial, confere a folha contra um recálculo determinístico e gera extrato, recibos, resumo, férias e rescisão em PDF, XLSX e CSV — mostrando a origem de cada valor.">
+  <meta property="og:title" content="Folha eSocial Local">
+  <meta property="og:description" content="Relatórios de folha a partir dos XMLs do eSocial, com a origem de cada valor. 100% local.">
+  <meta property="og:image" content="assets/capturas/painel.png">
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+  <style>
+    :root {
+      --azul-900: #0f2257;
+      --azul-800: #132a66;
+      --azul-700: #1d3b8b;
+      --azul-500: #2a54c9;
+      --azul-100: #e8eefc;
+      --verde: #067647;
+      --verde-claro: #17b26a;
+      --roxo: #5b3fa6;
+      --ambar: #8a5a00;
+      --vermelho: #b42318;
+      --fundo: #f6f7fb;
+      --superficie: #ffffff;
+      --borda: #e4e7ec;
+      --texto: #101828;
+      --texto-2: #475467;
+      --raio: 14px;
+      --sombra: 0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.08);
+      --fonte: 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
+      --mono: Consolas, 'Cascadia Mono', 'SF Mono', Menlo, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fundo: #0b1224;
+        --superficie: #111a33;
+        --borda: #243056;
+        --texto: #e7ecf8;
+        --texto-2: #a9b4cf;
+        --azul-100: #1a2a55;
+        --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; font-family: var(--fonte); color: var(--texto); background: var(--fundo); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    img { max-width: 100%; display: block; }
+    .conteiner { width: min(1160px, 100% - 32px); margin-inline: auto; }
+    .pular { position: absolute; left: -999px; }
+    .pular:focus { left: 16px; top: 16px; background: #fff; color: #000; padding: 8px 12px; border-radius: 8px; z-index: 99; }
+    :focus-visible { outline: 3px solid #84adff; outline-offset: 3px; }
+
+    /* ---------- topo ---------- */
+    .topo { position: sticky; top: 0; z-index: 20; backdrop-filter: saturate(160%) blur(10px); background: color-mix(in srgb, var(--azul-900) 88%, transparent); color: #fff; }
+    .topo .conteiner { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 64px; }
+    .marca { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; letter-spacing: .01em; }
+    .marca img { width: 34px; height: 34px; }
+    .nav { display: flex; gap: 22px; font-size: 15px; }
+    .nav a { text-decoration: none; opacity: .88; }
+    .nav a:hover { opacity: 1; text-decoration: underline; }
+
+    /* ---------- herói ---------- */
+    .heroi { background: radial-gradient(1200px 600px at 80% -10%, #3b6cf0 0%, transparent 60%), linear-gradient(160deg, var(--azul-900) 0%, var(--azul-800) 45%, var(--azul-700) 100%); color: #fff; padding: 72px 0 0; overflow: hidden; }
+    .heroi .grade { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; }
+    .selo-topo { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 600; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22); padding: 6px 12px; border-radius: 999px; }
+    .selo-topo .ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--verde-claro); box-shadow: 0 0 0 4px rgba(23,178,106,.25); }
+    .heroi h1 { font-size: clamp(34px, 4.6vw, 54px); line-height: 1.08; margin: 18px 0 16px; letter-spacing: -.02em; }
+    .heroi h1 em { font-style: normal; background: linear-gradient(90deg, #9fe6c3, #7dd3fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .heroi p.lead { font-size: 19px; color: #d5def7; max-width: 560px; margin: 0 0 28px; }
+    .acoes { display: flex; gap: 12px; flex-wrap: wrap; }
+    .botao { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; padding: 13px 20px; border-radius: 12px; text-decoration: none; border: 1px solid transparent; transition: transform .15s ease, box-shadow .15s ease; }
+    .botao:hover { transform: translateY(-1px); }
+    .botao.primario { background: #fff; color: var(--azul-800); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+    .botao.secundario { color: #fff; border-color: rgba(255,255,255,.4); }
+    .botao svg { width: 20px; height: 20px; }
+    .heroi .janela { background: #0b1737; border-radius: 14px 14px 0 0; box-shadow: 0 30px 80px rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.14); border-bottom: 0; overflow: hidden; transform: translateY(8px); }
+    .janela .barra { display: flex; gap: 6px; padding: 10px 12px; background: #0e1c44; align-items: center; }
+    .janela .barra span { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+    .janela .barra span:nth-child(2) { background: #febc2e; }
+    .janela .barra span:nth-child(3) { background: #28c840; }
+    .janela .barra small { margin-left: 10px; color: #9fb0d9; font-family: var(--mono); font-size: 12px; }
+    .numeros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 1px solid rgba(255,255,255,.14); margin-top: 56px; }
+    .numeros div { padding: 22px 16px; text-align: center; border-right: 1px solid rgba(255,255,255,.14); }
+    .numeros div:last-child { border-right: 0; }
+    .numeros strong { display: block; font-size: 28px; letter-spacing: -.01em; }
+    .numeros span { color: #c7d3f5; font-size: 14px; }
+
+    /* ---------- seções ---------- */
+    section { padding: 88px 0; }
+    .titulo-secao { max-width: 760px; margin-bottom: 40px; }
+    .titulo-secao .sobre { color: var(--azul-500); font-weight: 700; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; }
+    .titulo-secao h2 { font-size: clamp(28px, 3.2vw, 38px); line-height: 1.15; margin: 8px 0 12px; letter-spacing: -.015em; }
+    .titulo-secao p { color: var(--texto-2); font-size: 18px; margin: 0; }
+    @media (prefers-color-scheme: dark) { .titulo-secao .sobre { color: #84adff; } }
+
+    .grade-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+    .grade-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .cartao { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); padding: 24px; box-shadow: var(--sombra); }
+    .cartao h3 { margin: 12px 0 6px; font-size: 18px; }
+    .cartao p { margin: 0; color: var(--texto-2); }
+    .icone { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--azul-100); color: var(--azul-700); }
+    @media (prefers-color-scheme: dark) { .icone { color: #9db8ff; } }
+    .icone svg { width: 24px; height: 24px; }
+
+    .origens { display: grid; gap: 14px; margin: 24px 0 0; padding: 0; list-style: none; }
+    .origens li { display: flex; gap: 14px; align-items: flex-start; }
+    .tag { font: 700 12px/1 var(--fonte); letter-spacing: .03em; padding: 6px 8px; border-radius: 6px; border: 1px solid; min-width: 78px; text-align: center; }
+    .tag.xml { color: #344054; background: #f2f4f7; border-color: #d0d5dd; }
+    .tag.calc { color: var(--roxo); background: #f4f0ff; border-color: #d9d0f5; }
+    .tag.comp { color: var(--ambar); background: #fff6e0; border-color: #f5d88f; }
+    .tag.aus { color: var(--vermelho); background: #fef3f2; border: 1px dashed #f97066; }
+    .origens strong { display: block; }
+    .origens span { color: var(--texto-2); }
+
+    .moldura { border-radius: var(--raio); overflow: hidden; border: 1px solid var(--borda); box-shadow: var(--sombra); background: var(--superficie); }
+
+    .passos { counter-reset: passo; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+    .passo { position: relative; padding-top: 56px; }
+    .passo::before { counter-increment: passo; content: counter(passo); position: absolute; top: 0; left: 0; width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--azul-500), var(--azul-800)); color: #fff; font-weight: 800; display: grid; place-items: center; }
+    .passo h3 { margin: 0 0 6px; }
+    .passo p { margin: 0; color: var(--texto-2); }
+
+    .galeria { display: grid; grid-template-columns: repeat(2, 1fr); gap: 28px; }
+    .galeria figure { margin: 0; }
+    .galeria figcaption { margin-top: 10px; color: var(--texto-2); font-size: 15px; }
+    .galeria figcaption strong { color: var(--texto); }
+
+    .relatorios { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+    .relatorios div { background: var(--superficie); border: 1px solid var(--borda); border-radius: 12px; padding: 16px 18px; }
+    .relatorios strong { display: block; }
+    .relatorios span { color: var(--texto-2); font-size: 14px; }
+    .relatorios .ref { font-size: 11px; font-weight: 700; color: var(--azul-500); text-transform: uppercase; letter-spacing: .05em; }
+    @media (prefers-color-scheme: dark) { .relatorios .ref { color: #84adff; } }
+
+    .seguranca { background: linear-gradient(160deg, var(--azul-900), var(--azul-700)); color: #fff; }
+    .seguranca .titulo-secao p { color: #cdd8f6; }
+    .seguranca .titulo-secao .sobre { color: #9fe6c3; }
+    .lista-check { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 16px 32px; }
+    .lista-check li { display: flex; gap: 12px; align-items: flex-start; color: #e6ecfb; }
+    .lista-check svg { flex: none; width: 22px; height: 22px; color: #6ce9a6; margin-top: 2px; }
+    .lista-check strong { color: #fff; }
+
+    pre { background: #0b1224; color: #e2e8f0; border-radius: 12px; padding: 18px 20px; overflow-x: auto; font: 14px/1.6 var(--mono); border: 1px solid #243056; margin: 0; }
+    pre .c { color: #7c8db5; }
+    .instalar .cartao h3 { margin-top: 0; }
+    .requisitos { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 0; }
+    .requisitos span { background: var(--azul-100); color: var(--azul-700); font-weight: 600; font-size: 14px; padding: 6px 12px; border-radius: 999px; }
+    @media (prefers-color-scheme: dark) { .requisitos span { color: #c7d7ff; } }
+
+    details { background: var(--superficie); border: 1px solid var(--borda); border-radius: 12px; padding: 16px 20px; }
+    details + details { margin-top: 12px; }
+    summary { cursor: pointer; font-weight: 700; font-size: 17px; }
+    details p { color: var(--texto-2); margin: 10px 0 0; }
+
+    .aviso { border-left: 4px solid #f79009; background: color-mix(in srgb, #f79009 10%, var(--superficie)); padding: 16px 20px; border-radius: 10px; color: var(--texto); }
+
+    footer { padding: 40px 0 56px; color: var(--texto-2); border-top: 1px solid var(--borda); }
+    footer .conteiner { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+    footer .marca { color: var(--texto); }
+
+    @media (max-width: 960px) {
+      .heroi .grade, .grade-2 { grid-template-columns: 1fr; }
+      .grade-3, .passos { grid-template-columns: 1fr 1fr; }
+      .numeros { grid-template-columns: 1fr 1fr; }
+      .numeros div:nth-child(2) { border-right: 0; }
+      .lista-check { grid-template-columns: 1fr; }
+      .nav { display: none; }
+    }
+    @media (max-width: 620px) {
+      .grade-3, .passos, .galeria { grid-template-columns: 1fr; }
+      section { padding: 64px 0; }
+      .heroi { padding-top: 48px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .botao { transition: none; } }
+  </style>
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="topo">
+    <div class="conteiner">
+      <a class="marca" href="#"><img src="assets/logo.svg" alt="" width="34" height="34"> Folha eSocial Local</a>
+      <nav class="nav" aria-label="Seções">
+        <a href="#como-funciona">Como funciona</a>
+        <a href="#relatorios">Relatórios</a>
+        <a href="#seguranca">Segurança</a>
+        <a href="#instalar">Instalar</a>
+        <a href="https://github.com/fredabsd-svg/folha-esocial-local">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <div class="heroi">
+      <div class="conteiner">
+        <div class="grade">
+          <div>
+            <span class="selo-topo"><span class="ponto"></span> Código aberto · roda no seu computador</span>
+            <h1>Relatórios de folha a partir dos XMLs do eSocial — <em>com a origem de cada valor.</em></h1>
+            <p class="lead">Importe o ZIP do eSocial Download, confira a folha contra um recálculo determinístico e exporte extrato, recibos, resumo, férias e rescisão em PDF, Excel e CSV. Sem nuvem, sem Docker e sem pedir senhas.</p>
+            <div class="acoes">
+              <a class="botao primario" href="https://github.com/fredabsd-svg/folha-esocial-local">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.73.5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5z"/></svg>
+                Ver no GitHub
+              </a>
+              <a class="botao secundario" href="#instalar">Como instalar</a>
+            </div>
+          </div>
+          <div class="janela" aria-hidden="true">
+            <div class="barra"><span></span><span></span><span></span><small>127.0.0.1:5178</small></div>
+            <img src="assets/capturas/painel.png" alt="" width="1600" height="1000" loading="eager">
+          </div>
+        </div>
+        <div class="numeros">
+          <div><strong>12</strong><span>relatórios prontos</span></div>
+          <div><strong>4 origens</strong><span>XML · calculado · complementado · ausente</span></div>
+          <div><strong>47</strong><span>testes automatizados</span></div>
+          <div><strong>100% local</strong><span>banco e arquivos cifrados</span></div>
+        </div>
+      </div>
+    </div>
+
+    <section id="origem">
+      <div class="conteiner grade-2">
+        <div>
+          <div class="titulo-secao">
+            <span class="sobre">Rastreabilidade</span>
+            <h2>Cada número tem endereço</h2>
+            <p>Clique em qualquer valor e veja de onde ele veio: o arquivo, o evento, o recibo e o campo exato do XML — ou a regra, a versão e a memória do cálculo.</p>
+          </div>
+          <ul class="origens">
+            <li><span class="tag xml">XML</span><div><strong>Veio do eSocial</strong><span>Arquivo, tipo de evento, Id, recibo e caminho do campo.</span></div></li>
+            <li><span class="tag calc">CALC</span><div><strong>Calculado pelo sistema</strong><span>Fórmula, versão da regra, parâmetros e tabela legal com fonte.</span></div></li>
+            <li><span class="tag comp">COMP</span><div><strong>Complementado por você</strong><span>Informações que o eSocial não recebe (médias, saldo do FGTS, data do aviso), com origem e data.</span></div></li>
+            <li><span class="tag aus">AUSENTE</span><div><strong>Não encontrado</strong><span>Nunca vira zero. O sistema mostra o que falta e permite complementar.</span></div></li>
+          </ul>
+        </div>
+        <div class="moldura"><img src="assets/capturas/memoria-calculo.png" alt="Memória de cálculo de uma rescisão com valores calculados, do XML e ausentes identificados por selos" width="1600" height="1150" loading="lazy"></div>
+      </div>
+    </section>
+
+    <section id="recursos" style="padding-top:0">
+      <div class="conteiner">
+        <div class="titulo-secao">
+          <span class="sobre">Recursos</span>
+          <h2>Feito para quem confere folha todo mês</h2>
+          <p>Da importação ao PDF assinado, com conferências que apontam divergências sem alterar os dados originais.</p>
+        </div>
+        <div class="grade-3">
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+            <h3>Importação segura</h3>
+            <p>ZIP do eSocial Download, XMLs avulsos, lotes e ZIPs aninhados. Originais preservados, bloqueio de XXE, caminhos indevidos e “zip bomb”.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></svg></div>
+            <h3>Retificações e exclusões</h3>
+            <p>Reconhece indRetif, recibos e S-3000, evita dupla contagem e mantém todo o histórico consultável.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h2M14 11h2M8 15h2M14 15h2"/></svg></div>
+            <h3>Conferência determinística</h3>
+            <p>INSS, IRRF (com o redutor da Lei 15.270/2025), FGTS, avos, aviso proporcional e rescisão por motivo — regras versionadas, sem IA decidindo valores.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+            <h3>Pendências e divergências</h3>
+            <p>Vínculo sem remuneração, S-1200 sem S-1210, competência sem S-1299, líquido pago diferente do calculado e muito mais.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6M9 17h6"/></svg></div>
+            <h3>PDF, Excel e CSV</h3>
+            <p>Com sua marca no cabeçalho, marca d’água de prévia, histórico cifrado e uma aba “Origem dos dados” no XLSX.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+            <h3>Fluxo oficial, sem senhas</h3>
+            <p>O login no eSocial é feito por você, no site oficial. O sistema confirma CPF/CNPJ e autorização e importa o ZIP baixado.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="como-funciona" style="padding-top:0">
+      <div class="conteiner">
+        <div class="titulo-secao">
+          <span class="sobre">Como funciona</span>
+          <h2>Do portal ao relatório em quatro passos</h2>
+        </div>
+        <div class="passos">
+          <div class="passo"><h3>Obtenha</h3><p>Peça os eventos no eSocial Download com seu login Gov.br. O sistema registra a solicitação e abre o portal oficial.</p></div>
+          <div class="passo"><h3>Importe</h3><p>Arraste o ZIP. Eventos, recibos e totalizadores são lidos, validados e deduplicados.</p></div>
+          <div class="passo"><h3>Confira</h3><p>Veja divergências entre o XML e o recálculo e complemente o que o eSocial não recebe.</p></div>
+          <div class="passo"><h3>Exporte</h3><p>Gere PDF, XLSX ou CSV com a sua marca e guarde no histórico.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="telas" style="padding-top:0">
+      <div class="conteiner">
+        <div class="titulo-secao">
+          <span class="sobre">Telas</span>
+          <h2>Interface pensada para o dia a dia do DP</h2>
+          <p>Imagens geradas com a demonstração embutida — empresa e trabalhadores fictícios.</p>
+        </div>
+        <div class="galeria">
+          <figure><div class="moldura"><img src="assets/capturas/relatorios.png" alt="Tela de relatórios com os doze modelos disponíveis" width="1600" height="1000" loading="lazy"></div><figcaption><strong>Relatórios.</strong> Doze modelos, filtros, agrupamento e exportação.</figcaption></figure>
+          <figure><div class="moldura"><img src="assets/capturas/relatorio-recibo.png" alt="Prévia de recibo de pagamento com selos de origem" width="1600" height="1221" loading="lazy"></div><figcaption><strong>Recibo de pagamento.</strong> Vencimentos, descontos, bases e assinatura.</figcaption></figure>
+          <figure><div class="moldura"><img src="assets/capturas/relatorio-rescisao.png" alt="Prévia do relatório de rescisão" width="1600" height="1133" loading="lazy"></div><figcaption><strong>Rescisão.</strong> Dados do S-2299, verbas, prazo de pagamento e bases.</figcaption></figure>
+          <figure><div class="moldura"><img src="assets/capturas/pendencias.png" alt="Tela de pendências e divergências" width="1600" height="1000" loading="lazy"></div><figcaption><strong>Pendências.</strong> Divergência de líquido e S-1210 ausente apontados na hora.</figcaption></figure>
+          <figure><div class="moldura"><img src="assets/capturas/importacao.png" alt="Detalhe de uma importação com o escopo real" width="1600" height="1000" loading="lazy"></div><figcaption><strong>Importação.</strong> Escopo real: arquivos lidos, eventos novos, recibos e cobertura.</figcaption></figure>
+          <figure><div class="moldura"><img src="assets/capturas/obter-xmls.png" alt="Fluxo assistido do eSocial Download" width="1600" height="1000" loading="lazy"></div><figcaption><strong>Obter XMLs.</strong> Confirmação de CPF/CNPJ e autorização antes de abrir o portal.</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="relatorios" style="padding-top:0">
+      <div class="conteiner">
+        <div class="titulo-secao">
+          <span class="sobre">Relatórios</span>
+          <h2>Doze relatórios, todos com origem rastreável</h2>
+        </div>
+        <div class="relatorios">
+          <div><span class="ref">Referência</span><strong>Extrato mensal</strong><span>Vínculo, situação, rubricas, bases, líquido e conferências.</span></div>
+          <div><span class="ref">Referência</span><strong>Movimentos</strong><span>Rubricas por trabalhador com valor informado e calculado.</span></div>
+          <div><span class="ref">Referência</span><strong>Recibo de pagamento</strong><span>Holerite por demonstrativo, com bases e assinatura.</span></div>
+          <div><span class="ref">Referência</span><strong>Relação geral dos líquidos</strong><span>Por grupo, com quantidade de pessoas e total.</span></div>
+          <div><span class="ref">Referência</span><strong>Resumo mensal da folha</strong><span>Proventos, descontos, informativas, bases e S-5011.</span></div>
+          <div><span class="ref">Referência</span><strong>Aviso e recibo de férias</strong><span>Períodos do S-2230, rubricas de férias e ciência.</span></div>
+          <div><span class="ref">Referência</span><strong>Relatório de rescisão</strong><span>Verbas, prazo, bases e memória de cálculo por motivo.</span></div>
+          <div><strong>Admissões e desligamentos</strong><span>Movimentação do período.</span></div>
+          <div><strong>Remunerações × pagamentos</strong><span>Líquido calculado contra o pago no S-1210.</span></div>
+          <div><strong>Rubricas por competência</strong><span>Matriz rubrica × mês.</span></div>
+          <div><strong>Eventos ausentes</strong><span>O que falta importar ou transmitir.</span></div>
+          <div><strong>Divergências</strong><span>Líquido, bases, INSS, FGTS e IRRF: XML × recálculo.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="seguranca" class="seguranca">
+      <div class="conteiner">
+        <div class="titulo-secao">
+          <span class="sobre">Segurança e privacidade</span>
+          <h2>Dados trabalhistas ficam no seu computador</h2>
+          <p>Nada é enviado para servidores externos. Nenhuma telemetria. Nenhuma senha solicitada.</p>
+        </div>
+        <ul class="lista-check">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Banco cifrado</strong> (SQLite ChaCha20-Poly1305) e arquivos em AES-256-GCM.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Chave protegida pela DPAPI</strong>: só o seu usuário do Windows abre os dados.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Só 127.0.0.1</strong>, com proteção contra DNS rebinding e CSRF.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Sem credenciais</strong>: Gov.br, certificado, token e cookie nunca passam pelo sistema.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Logs sem dados pessoais</strong>: nada de CPF, nome, salário ou XML.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Backup com senha</strong> e exclusão completa com um clique.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="instalar" class="instalar">
+      <div class="conteiner grade-2" style="align-items:start">
+        <div>
+          <div class="titulo-secao">
+            <span class="sobre">Instalação</span>
+            <h2>Pronto em poucos minutos</h2>
+            <p>No Windows, basta baixar o projeto e dar dois cliques em <code>iniciar.bat</code>. Ele instala, compila e abre o sistema no navegador.</p>
+          </div>
+          <div class="requisitos"><span>Windows 10/11</span><span>Node.js 20, 22 ou 24</span><span>Sem Docker</span><span>Sem Visual Studio</span></div>
+        </div>
+        <div class="cartao">
+          <h3>Pelo terminal</h3>
+<pre><span class="c"># 1. baixe o código</span>
+git clone https://github.com/fredabsd-svg/folha-esocial-local.git
+cd folha-esocial-local
+
+<span class="c"># 2. instale e compile</span>
+npm run setup
+
+<span class="c"># 3. inicie (abre http://127.0.0.1:5178)</span>
+npm start</pre>
+          <p style="margin-top:14px">Primeira vez? No painel, clique em <strong>Carregar demonstração</strong> para explorar com dados fictícios.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="perguntas" style="padding-top:0">
+      <div class="conteiner">
+        <div class="titulo-secao">
+          <span class="sobre">Perguntas frequentes</span>
+          <h2>Dúvidas comuns</h2>
+        </div>
+        <details><summary>O relatório é um documento oficial do eSocial?</summary><p>Não. Todos os relatórios são prévias para conferência profissional, identificadas com marca d’água. Nada é transmitido ao governo.</p></details>
+        <details><summary>O sistema acessa o eSocial com a minha senha?</summary><p>Não. O login é feito por você no portal oficial, numa aba do seu navegador. O sistema só registra a solicitação e importa o ZIP que você baixar.</p></details>
+        <details><summary>E se faltar informação no XML?</summary><p>O campo aparece como <strong>ausente</strong> — nunca como zero. Você pode complementar com origem e data, e o cálculo que dependia dele passa a ser feito.</p></details>
+        <details><summary>As tabelas de INSS e IRRF ficam desatualizadas?</summary><p>As tabelas têm vigência, versão e fonte e podem ser atualizadas pela tela, sem mexer no código. Competências sem tabela geram cálculo “incompleto”, nunca um valor inventado.</p></details>
+        <details><summary>Funciona com o CNPJ alfanumérico?</summary><p>Sim. Cadastro, leitura dos XMLs e chaves internas aceitam o novo formato.</p></details>
+        <div class="aviso" style="margin-top:24px"><strong>Aviso:</strong> este projeto não é afiliado ao Governo Federal nem ao eSocial. Os cálculos são para conferência e não substituem o sistema de folha nem a análise profissional (CCT, faltas, médias e afastamentos podem não constar nos XMLs).</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="conteiner">
+      <a class="marca" href="#"><img src="assets/logo.svg" alt="" width="28" height="28"> Folha eSocial Local</a>
+      <span>Feito para escritórios contábeis · <a href="https://github.com/fredabsd-svg/folha-esocial-local">Código no GitHub</a> · <a href="MAPA-DE-CAMPOS.html">Mapa de campos</a></span>
+    </div>
+  </footer>
+</body>
+</html>
