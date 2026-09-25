@@ -30,7 +30,7 @@ Por trabalhador: empresa, competência, vínculo, situação, cargo, salário, r
 | Base do INSS (eSocial) | XML | S-5001 | `infoCp/.../infoBaseCS (ind13, tpValor = 11, valor)` |  |  |
 | INSS calculado / descontado (eSocial) | XML | S-5001 | `infoCpCalc/vrCpSeg, vrDescSeg` |  |  |
 | Base do INSS (rubricas) | Calculado |  |  | BASE_INSS_RUBRICAS v1 | Σ proventos − Σ descontos com codIncCP 11/15/21. |
-| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v1 | Tabela do INSS vigente na competência (Configurações › Tabelas). |
+| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v2 | Tabela do INSS vigente na competência (Configurações › Tabelas); cada faixa truncada em centavos, como no S-5001. |
 | Base e depósito do FGTS (eSocial) | XML | S-5003 | `infoBaseFGTS/basePerApur/remFGTS, dpsFGTS` |  |  |
 | FGTS recalculado | Calculado |  |  | FGTS_DEPOSITO v1 | 8% (2% para aprendiz, categoria 103). |
 | Base / IRRF recalculado | Calculado |  |  | IRRF_PROGRESSIVO v1 | Tabela progressiva, dependentes, desconto simplificado e redutor da Lei 15.270/2025 quando vigentes. |
@@ -49,7 +49,7 @@ Rubricas por trabalhador com código, descrição, referência, valor informado,
 | Proventos / descontos / informativas | Calculado |  |  | TOTAIS_DEMONSTRATIVO v1 | Somatório por tpRubr (1, 2, 3/4) do S-1010. |
 | Líquido calculado | Calculado |  |  | LIQUIDO v1 | Proventos − descontos. |
 | Líquido pago e data do pagamento | XML | S-1210 | `ideBenef/infoPgto/vrLiq, dtPgto (casado por perRef + ideDmDev)` |  |  |
-| Valor calculado | Calculado |  |  | INSS_PROGRESSIVO v1 / IRRF_PROGRESSIVO v1 | Somente para a rubrica de INSS (codIncCP 31) e de IRRF (codIncIRRF 31/32/33); demais rubricas: "—". |
+| Valor calculado | Calculado |  |  | INSS_PROGRESSIVO v2 / IRRF_PROGRESSIVO v1 | Somente para a rubrica de INSS (codIncCP 31) e de IRRF (codIncIRRF 31/32/33); demais rubricas: "—". |
 | Estabelecimento / lotação | XML | S-1200 | `ideEstabLot/nrInsc, codLotacao` |  |  |
 
 ## Recibo de pagamento (`recibo`)
@@ -77,7 +77,7 @@ Demonstrativo individual (holerite) por demonstrativo do S-1200, com vencimentos
 | Base do INSS (eSocial) | XML | S-5001 | `infoCp/.../infoBaseCS (ind13, tpValor = 11, valor)` |  |  |
 | INSS calculado / descontado (eSocial) | XML | S-5001 | `infoCpCalc/vrCpSeg, vrDescSeg` |  |  |
 | Base do INSS (rubricas) | Calculado |  |  | BASE_INSS_RUBRICAS v1 | Σ proventos − Σ descontos com codIncCP 11/15/21. |
-| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v1 | Tabela do INSS vigente na competência (Configurações › Tabelas). |
+| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v2 | Tabela do INSS vigente na competência (Configurações › Tabelas); cada faixa truncada em centavos, como no S-5001. |
 | Base e depósito do FGTS (eSocial) | XML | S-5003 | `infoBaseFGTS/basePerApur/remFGTS, dpsFGTS` |  |  |
 | FGTS recalculado | Calculado |  |  | FGTS_DEPOSITO v1 | 8% (2% para aprendiz, categoria 103). |
 | Base / IRRF recalculado | Calculado |  |  | IRRF_PROGRESSIVO v1 | Tabela progressiva, dependentes, desconto simplificado e redutor da Lei 15.270/2025 quando vigentes. |
@@ -112,7 +112,7 @@ Rubricas agrupadas em proventos, descontos e informativas, quantidade de trabalh
 | Base do INSS (eSocial) | XML | S-5001 | `infoCp/.../infoBaseCS (ind13, tpValor = 11, valor)` |  |  |
 | INSS calculado / descontado (eSocial) | XML | S-5001 | `infoCpCalc/vrCpSeg, vrDescSeg` |  |  |
 | Base do INSS (rubricas) | Calculado |  |  | BASE_INSS_RUBRICAS v1 | Σ proventos − Σ descontos com codIncCP 11/15/21. |
-| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v1 | Tabela do INSS vigente na competência (Configurações › Tabelas). |
+| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v2 | Tabela do INSS vigente na competência (Configurações › Tabelas); cada faixa truncada em centavos, como no S-5001. |
 | Base e depósito do FGTS (eSocial) | XML | S-5003 | `infoBaseFGTS/basePerApur/remFGTS, dpsFGTS` |  |  |
 | FGTS recalculado | Calculado |  |  | FGTS_DEPOSITO v1 | 8% (2% para aprendiz, categoria 103). |
 | Base / IRRF recalculado | Calculado |  |  | IRRF_PROGRESSIVO v1 | Tabela progressiva, dependentes, desconto simplificado e redutor da Lei 15.270/2025 quando vigentes. |
@@ -150,7 +150,7 @@ Dados do desligamento, verbas, descontos, bases, líquido, memória de cálculo 
 | Base do INSS (eSocial) | XML | S-5001 | `infoCp/.../infoBaseCS (ind13, tpValor = 11, valor)` |  |  |
 | INSS calculado / descontado (eSocial) | XML | S-5001 | `infoCpCalc/vrCpSeg, vrDescSeg` |  |  |
 | Base do INSS (rubricas) | Calculado |  |  | BASE_INSS_RUBRICAS v1 | Σ proventos − Σ descontos com codIncCP 11/15/21. |
-| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v1 | Tabela do INSS vigente na competência (Configurações › Tabelas). |
+| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v2 | Tabela do INSS vigente na competência (Configurações › Tabelas); cada faixa truncada em centavos, como no S-5001. |
 | Base e depósito do FGTS (eSocial) | XML | S-5003 | `infoBaseFGTS/basePerApur/remFGTS, dpsFGTS` |  |  |
 | FGTS recalculado | Calculado |  |  | FGTS_DEPOSITO v1 | 8% (2% para aprendiz, categoria 103). |
 
@@ -203,7 +203,7 @@ Conferências entre valores do XML e recálculo (líquido, bases, INSS, FGTS, IR
 | Base do INSS (eSocial) | XML | S-5001 | `infoCp/.../infoBaseCS (ind13, tpValor = 11, valor)` |  |  |
 | INSS calculado / descontado (eSocial) | XML | S-5001 | `infoCpCalc/vrCpSeg, vrDescSeg` |  |  |
 | Base do INSS (rubricas) | Calculado |  |  | BASE_INSS_RUBRICAS v1 | Σ proventos − Σ descontos com codIncCP 11/15/21. |
-| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v1 | Tabela do INSS vigente na competência (Configurações › Tabelas). |
+| INSS recalculado | Calculado |  |  | INSS_PROGRESSIVO v2 | Tabela do INSS vigente na competência (Configurações › Tabelas); cada faixa truncada em centavos, como no S-5001. |
 | Base e depósito do FGTS (eSocial) | XML | S-5003 | `infoBaseFGTS/basePerApur/remFGTS, dpsFGTS` |  |  |
 | FGTS recalculado | Calculado |  |  | FGTS_DEPOSITO v1 | 8% (2% para aprendiz, categoria 103). |
 | Base / IRRF recalculado | Calculado |  |  | IRRF_PROGRESSIVO v1 | Tabela progressiva, dependentes, desconto simplificado e redutor da Lei 15.270/2025 quando vigentes. |

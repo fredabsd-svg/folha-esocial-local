@@ -18,10 +18,11 @@ describe('importação de ZIP e XML', () => {
     expect(resumo.status).toBe('concluida');
     expect(resumo.arquivos.total).toBe(53);
     expect(resumo.arquivos.comErro).toBe(0);
-    expect(resumo.eventos.novos).toBe(79);
+    expect(resumo.eventos.novos).toBe(89);
     expect(resumo.recibos).toBe(53);
     expect(resumo.porTipo['S-1200']).toBe(12);
     expect(resumo.porTipo['S-5001']).toBe(13);
+    expect(resumo.porTipo['S-5002']).toBe(10);
     expect(resumo.empregadores).toEqual(['1:98765432']);
     expect(resumo.periodo).toEqual({ inicio: '2026-06', fim: '2026-09' });
     expect(resumo.trabalhadores).toBe(4);

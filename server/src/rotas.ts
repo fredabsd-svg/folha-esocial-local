@@ -13,7 +13,9 @@ import { definicoes } from './relatorios/registro.js';
 import { excluirTudo, gerarBackup, restaurarBackup, tamanhoDados, validarSenhaBackup } from './servicos/backup.js';
 import {
   buscarEventos,
+  coberturaEmpresa,
   competencias,
+  pendenciasCadastro,
   detalheEvento,
   detalheImportacao,
   detalheTrabalhador,
@@ -170,6 +172,7 @@ export async function registrarRotas(app: FastifyInstance, estado: Estado) {
     const d = db();
     d.transaction(() => {
       d.prepare('DELETE FROM recibos WHERE evento_id IN (SELECT evento_id FROM eventos WHERE emp_chave = ?)').run(emp.chave);
+      d.prepare('DELETE FROM rubricas_recibo WHERE emp_chave = ?').run(emp.chave);
       d.prepare('DELETE FROM eventos WHERE emp_chave = ?').run(emp.chave);
       d.prepare('DELETE FROM complementos WHERE emp_chave = ?').run(emp.chave);
       d.prepare('DELETE FROM solicitacoes WHERE emp_chave = ?').run(emp.chave);
@@ -371,6 +374,52 @@ export async function registrarRotas(app: FastifyInstance, estado: Estado) {
       d.prepare('UPDATE empresas SET razao_social = ?, atualizado_em = ? WHERE chave = ?').run(valor, agora(), empresa);
     }
     return { id };
+  });
+
+  app.get('/api/complementos/pendentes', async (req) => pendenciasCadastro(db(), empresaValida((req.query as Q).empresa)));
+
+  app.get('/api/cobertura', async (req) => coberturaEmpresa(db(), empresaValida((req.query as Q).empresa)));
+
+  /** Grava vários complementos de uma vez (mesma origem), substituindo os anteriores do mesmo campo. */
+  app.post('/api/complementos/lote', async (req) => {
+    const b = (req.body ?? {}) as { empresa?: string; origem?: string; itens?: unknown };
+    const empresa = empresaValida(texto(b.empresa, 20));
+    const origem = texto(b.origem, 300);
+    if (!origem) throw new ErroHttp(400, 'Informe a origem das informações (documento, sistema de folha ou pessoa).');
+    if (!Array.isArray(b.itens) || !b.itens.length) throw new ErroHttp(400, 'Nenhuma informação para gravar.');
+    const permitidos: Record<string, string[]> = {
+      trabalhador: ['nome', 'cargo', 'cbo', 'salario', 'data_admissao', 'dependentes_irrf'],
+      rubrica: ['descricao'],
+      empresa: ['razao_social'],
+    };
+    const itens = (b.itens as Array<Record<string, unknown>>).slice(0, 2000).map((i) => ({
+      escopo: texto(i.escopo, 30) ?? '',
+      referencia: texto(i.referencia, 120) ?? '',
+      campo: texto(i.campo, 60) ?? '',
+      valor: texto(i.valor, 500) ?? '',
+    }));
+    for (const i of itens) {
+      if (!permitidos[i.escopo]?.includes(i.campo) || !i.referencia || !i.valor) throw new ErroHttp(400, `Item inválido: ${i.escopo}/${i.campo}.`);
+      if (i.campo === 'salario' && !Number.isFinite(Number(i.valor.replace(/\./g, '').replace(',', '.')))) throw new ErroHttp(400, 'Salário deve ser numérico (ex.: 2500,00).');
+      if (i.campo === 'salario') i.valor = String(Number(i.valor.replace(/\./g, '').replace(',', '.')));
+      if (i.campo === 'data_admissao' && !/^\d{4}-\d{2}-\d{2}$/.test(i.valor)) throw new ErroHttp(400, 'Data de admissão no formato AAAA-MM-DD.');
+      if (i.campo === 'dependentes_irrf' && !/^\d{1,2}$/.test(i.valor)) throw new ErroHttp(400, 'Dependentes: número inteiro.');
+    }
+    const d = db();
+    const agoraIso = agora();
+    const ins = d.prepare('INSERT INTO complementos (emp_chave, escopo, referencia, campo, valor, origem, informado_em) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const substituir = d.prepare(
+      'UPDATE complementos SET ativo = 0, substituido_por = ? WHERE emp_chave = ? AND escopo = ? AND referencia = ? AND campo = ? AND id <> ? AND ativo = 1',
+    );
+    d.transaction(() => {
+      for (const i of itens) {
+        const id = Number(ins.run(empresa, i.escopo, i.referencia, i.campo, i.valor, origem, agoraIso).lastInsertRowid);
+        substituir.run(id, empresa, i.escopo, i.referencia, i.campo, id);
+        if (i.escopo === 'empresa' && i.campo === 'razao_social') d.prepare('UPDATE empresas SET razao_social = ?, atualizado_em = ? WHERE chave = ?').run(i.valor, agoraIso, empresa);
+      }
+    })();
+    arm().auditar('complementos_lote', `itens=${itens.length}`);
+    return { gravados: itens.length };
   });
 
   app.delete('/api/complementos/:id', async (req) => {

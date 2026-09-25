@@ -87,7 +87,7 @@ const MAPA_BASES: ItemMapaCampo[] = [
   { campo: 'Base do INSS (eSocial)', classe: XML, eventos: 'S-5001', caminho: 'infoCp/.../infoBaseCS (ind13, tpValor = 11, valor)' },
   { campo: 'INSS calculado / descontado (eSocial)', classe: XML, eventos: 'S-5001', caminho: 'infoCpCalc/vrCpSeg, vrDescSeg' },
   { campo: 'Base do INSS (rubricas)', classe: CALC, regra: 'BASE_INSS_RUBRICAS v1', observacao: 'Σ proventos − Σ descontos com codIncCP 11/15/21.' },
-  { campo: 'INSS recalculado', classe: CALC, regra: 'INSS_PROGRESSIVO v1', observacao: 'Tabela do INSS vigente na competência (Configurações › Tabelas).' },
+  { campo: 'INSS recalculado', classe: CALC, regra: 'INSS_PROGRESSIVO v2', observacao: 'Tabela do INSS vigente na competência (Configurações › Tabelas); cada faixa truncada em centavos, como no S-5001.' },
   { campo: 'Base e depósito do FGTS (eSocial)', classe: XML, eventos: 'S-5003', caminho: 'infoBaseFGTS/basePerApur/remFGTS, dpsFGTS' },
   { campo: 'FGTS recalculado', classe: CALC, regra: 'FGTS_DEPOSITO v1', observacao: '8% (2% para aprendiz, categoria 103).' },
   { campo: 'Base / IRRF recalculado', classe: CALC, regra: 'IRRF_PROGRESSIVO v1', observacao: 'Tabela progressiva, dependentes, desconto simplificado e redutor da Lei 15.270/2025 quando vigentes.' },
@@ -117,7 +117,7 @@ export const RELATORIOS: Registro[] = [
     parametros: [P.competencia, P.indApuracao, P.trabalhador, P.ordenar, P.informativas],
     mapaCampos: [
       ...MAPA_RUBRICAS,
-      { campo: 'Valor calculado', classe: CALC, regra: 'INSS_PROGRESSIVO v1 / IRRF_PROGRESSIVO v1', observacao: 'Somente para a rubrica de INSS (codIncCP 31) e de IRRF (codIncIRRF 31/32/33); demais rubricas: "—".' },
+      { campo: 'Valor calculado', classe: CALC, regra: 'INSS_PROGRESSIVO v2 / IRRF_PROGRESSIVO v1', observacao: 'Somente para a rubrica de INSS (codIncCP 31) e de IRRF (codIncIRRF 31/32/33); demais rubricas: "—".' },
       { campo: 'Estabelecimento / lotação', classe: XML, eventos: 'S-1200', caminho: 'ideEstabLot/nrInsc, codLotacao' },
     ],
     formatos: ['pdf', 'xlsx', 'csv'],

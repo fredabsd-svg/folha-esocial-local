@@ -206,7 +206,7 @@ describe('backup, restauração e exclusão', () => {
     expect((estado.arm.db.prepare('SELECT count(*) n FROM eventos').get() as { n: number }).n).toBe(0);
     await expect(restaurarBackup(estado.arm, bk, 'senha-errada-errada')).rejects.toThrow(/Senha incorreta/);
     await restaurarBackup(estado.arm, bk, 'senha-forte-de-teste');
-    expect((estado.arm.db.prepare('SELECT count(*) n FROM eventos').get() as { n: number }).n).toBe(79);
+    expect((estado.arm.db.prepare('SELECT count(*) n FROM eventos').get() as { n: number }).n).toBe(89);
     const imp = estado.arm.db.prepare('SELECT sha256 FROM importacoes').get() as { sha256: string };
     const original = await estado.arm.lerOriginal(imp.sha256);
     expect(original.equals(await gerarZipSintetico())).toBe(true);

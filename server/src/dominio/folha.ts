@@ -10,11 +10,12 @@ import {
   calcularInss,
   calcularIrrf,
   comparar,
+  competenciaSeguinte,
   type Comparacao,
   liquido,
   type Resultado,
+  cent,
   somar,
-  somaPorIncidencia,
   totalPorTipo,
   ultimoDiaMes,
   type TipoIrrf,
@@ -291,18 +292,25 @@ function conferir(
   };
 }
 
-function vxRubricas(itens: ItemRem[], codigos: string[], campo: 'cp' | 'ir' | 'fgts', rotulo: string): Val {
-  const sel2 = itens.filter((i) => i.rub[campo] && codigos.includes(i.rub[campo]!));
-  if (!sel2.length) return va(`Nenhuma rubrica com incidência ${codigos.join('/')} (${rotulo})`, 'moeda');
-  if (sel2.length === 1) return sel2[0].valor;
+/**
+ * Valor retido (INSS ou IRRF) pelas rubricas: descontos somam e proventos subtraem;
+ * rubricas informativas (tpRubr 3 e 4) não entram — mesmo critério do vrDescSeg (S-5001).
+ */
+export function vxRubricas(itens: ItemRem[], codigos: string[], campo: 'cp' | 'ir' | 'fgts', rotulo: string): Val {
+  const comInc = itens.filter((i) => i.rub[campo] && codigos.includes(i.rub[campo]!));
+  const sel2 = comInc.filter((i) => i.rub.tp !== '3' && i.rub.tp !== '4');
+  const informativas = comInc.length - sel2.length;
+  if (!sel2.length) return va(`Nenhuma rubrica de desconto com incidência ${codigos.join('/')} (${rotulo})`, 'moeda');
+  if (sel2.length === 1 && sel2[0].rub.tp !== '1' && !informativas) return sel2[0].valor;
   return {
-    v: somaPorIncidencia(sel2.map((i) => ({ valor: i.vNum, codInc: i.rub[campo] })), codigos),
+    v: sel2.reduce((s, i) => s + (i.rub.tp === '1' ? -1 : 1) * cent(i.vNum ?? 0), 0) / 100,
     o: 'calculado',
     f: 'moeda',
     c: {
       regra: 'SOMA_RUBRICAS',
-      versao: '1',
-      formula: `Σ vrRubr das rubricas com incidência ${codigos.join('/')} (${rotulo})`,
+      versao: '2',
+      formula: `Σ descontos − Σ proventos das rubricas com incidência ${codigos.join('/')} (${rotulo}); rubricas informativas (tipos 3 e 4) não entram`,
+      parametros: informativas ? { rubricasInformativasIgnoradas: informativas } : undefined,
       fontes: sel2.map((i) => i.valor.x!).filter(Boolean),
     },
   };
@@ -405,7 +413,14 @@ export function montarFolha(d: Dados, tab: Tabelas, per: string, indApuracao = '
     }
     for (const dm of dms) {
       if (!dm.pagamento) {
-        pend.push({ nivel: 'alerta', categoria: 'evento_ausente', mensagem: `Pagamento (S-1210) do demonstrativo ${dm.ideDmDev} (${dm.origem}) não encontrado.`, cpf, competencia: per, eventoId: dm.ev.eventoId });
+        // a folha mensal costuma ser paga (e informada no S-1210) no mês seguinte
+        const seguinte = per.length === 7 ? competenciaSeguinte(per) : undefined;
+        const temS1210Seguinte = !!seguinte && d.doPeriodo('S-1210', seguinte).length > 0;
+        const mensagem =
+          dm.origem === 'S-1200' && seguinte && !temS1210Seguinte
+            ? `Pagamento (S-1210) do demonstrativo ${dm.ideDmDev} não encontrado. A folha de ${compBr(per)} normalmente é paga e informada no S-1210 de ${compBr(seguinte)}, que ainda não foi importado.`
+            : `Pagamento (S-1210) do demonstrativo ${dm.ideDmDev} (${dm.origem}) não encontrado.`;
+        pend.push({ nivel: dm.origem === 'S-1200' && !temS1210Seguinte ? 'info' : 'alerta', categoria: 'evento_ausente', mensagem, cpf, competencia: per, eventoId: dm.ev.eventoId });
       }
       if (dm.conferenciaLiquido.status === 'divergente') {
         pend.push({ nivel: 'erro', categoria: 'divergencia', mensagem: `Líquido pago (S-1210) difere do líquido calculado no demonstrativo ${dm.ideDmDev} em R$ ${fmt(num(dm.conferenciaLiquido.diferenca!))}.`, cpf, competencia: per, eventoId: dm.ev.eventoId });
@@ -484,24 +499,51 @@ export function montarFolha(d: Dados, tab: Tabelas, per: string, indApuracao = '
     bases.fgtsBaseXml = vxSoma(somaCampo(s5003, 'remFGTS'), 'remFGTS (S-5003)', 'S-5003 (totalizador do FGTS) não importado');
     bases.fgtsDepXml = vxSoma(somaCampo(s5003, 'dpsFGTS'), 'dpsFGTS (S-5003)', 'S-5003 não importado');
     const rF = calcularFgts(baseF.valor ?? 0, categoria, per, tab);
+    // base incompleta (incidências desconhecidas) torna o depósito recalculado incompleto,
+    // em vez de gerar divergência falsa com o S-5003
+    if (baseF.ref.incompleto?.length) rF.ref.incompleto = [...(rF.ref.incompleto ?? []), ...baseF.ref.incompleto];
     bases.fgtsCalc = vc(rF.valor, rF.ref, 'moeda');
     if (indApuracao === '1') {
       conf.push(conferir('base_fgts', 'Base do FGTS (rubricas × S-5003)', baseF, [{ rotulo: 'remFGTS no S-5003', val: bases.fgtsBaseXml }], tab.tolerancia));
       conf.push(conferir('fgts', 'Depósito do FGTS (recálculo × S-5003)', rF, [{ rotulo: 'dpsFGTS no S-5003', val: bases.fgtsDepXml }], tab.tolerancia));
     }
 
-    // IRRF (conferência por competência)
-    const tipos: Array<{ tipo: TipoIrrf; rend: string; ret: string; prev: string; pens: string; priv: string; titulo: string }> = [
-      { tipo: 'mensal', rend: '11', ret: '31', prev: '41', pens: '51', priv: '46', titulo: 'IRRF mensal' },
-      { tipo: 'ferias', rend: '13', ret: '33', prev: '43', pens: '53', priv: '48', titulo: 'IRRF sobre férias' },
-      { tipo: '13', rend: '12', ret: '32', prev: '42', pens: '52', priv: '47', titulo: 'IRRF sobre 13º salário' },
+    // IRRF (conferência por competência). Como no totalizador S-5002 do leiaute S-1.3,
+    // as férias (incidências 13/33/43/48/53) são somadas à remuneração mensal;
+    // o 13º salário (12/32/42/47/52) é apurado em separado.
+    const tipos: Array<{ tipo: TipoIrrf; rend: string[]; ret: string[]; prev: string[]; pens: string[]; priv: string[]; titulo: string }> = [
+      { tipo: 'mensal', rend: ['11', '13'], ret: ['31', '33'], prev: ['41', '43'], pens: ['51', '53'], priv: ['46', '48'], titulo: 'IRRF do mês (remuneração + férias)' },
+      { tipo: '13', rend: ['12'], ret: ['32'], prev: ['42'], pens: ['52'], priv: ['47'], titulo: 'IRRF sobre 13º salário' },
     ];
     const irItens = inc('ir');
+    // S-5002: IRRF apurado pelo eSocial, por demonstrativo pago (perRef + ideDmDev)
+    const idesDm = new Set(dms.map((x) => x.ideDmDev));
+    const dmS5002 = d
+      .doTrabalhador('S-5002', cpf)
+      .flatMap((ev) => sel(ev.raiz, 'ideTrabalhador/dmDev').map((c) => ({ ev, c })))
+      .filter(({ c }) => txt(c, 'perRef') === per && idesDm.has(txt(c, 'ideDmDev') ?? ''));
+    const s5002Soma = (campo: string): Val => {
+      const fontes: RefXml[] = [];
+      let total = 0;
+      for (const { ev, c } of dmS5002) {
+        const alvo = um(c, `totApurMen/${campo}`);
+        if (alvo?.no.t === undefined) continue;
+        total += Math.round(Number(alvo.no.t) * 100);
+        fontes.push({ tipoEvento: ev.tipo, eventoId: ev.eventoId, recibo: ev.recibo, arquivo: ev.arquivo, campo: alvo.caminho });
+      }
+      return vxSoma({ valor: total / 100, fontes }, `${campo} (S-5002)`, 'S-5002 (IRRF por trabalhador) deste pagamento não importado');
+    };
+    if (dmS5002.length) {
+      bases.irrfRendS5002 = s5002Soma('vlrRendTrib');
+      bases.irrfS5002 = s5002Soma('vlrCRMen');
+      const rendMensal = basePorIncidencia(irItens, ['11', '13'], 'rendimentos tributáveis do mês (remuneração + férias)', 'RENDIMENTOS_IRRF');
+      conf.push(conferir('rend_irrf', 'Rendimentos tributáveis (rubricas × S-5002)', rendMensal, [{ rotulo: 'vlrRendTrib no S-5002', val: bases.irrfRendS5002 }], tab.tolerancia));
+    }
     for (const t of tipos) {
-      const rend = basePorIncidencia(irItens, [t.rend], `rendimentos tributáveis (${t.tipo})`, 'RENDIMENTOS_IRRF');
-      const retido = vxRubricas(todosItens, [t.ret], 'ir', `retenção ${t.tipo}`);
+      const rend = basePorIncidencia(irItens, t.rend, `rendimentos tributáveis (${t.tipo})`, 'RENDIMENTOS_IRRF');
+      const retido = vxRubricas(todosItens, t.ret, 'ir', `retenção ${t.tipo}`);
       if ((rend.valor ?? 0) <= 0 && retido.v === null) continue;
-      const soma = (c: string) => somar(todosItens.filter((i) => i.rub.ir === c).map((i) => i.vNum));
+      const soma = (cods: string[]) => somar(todosItens.filter((i) => i.rub.ir && cods.includes(i.rub.ir)).map((i) => i.vNum));
       const r = calcularIrrf(
         { competencia: per, tipo: t.tipo, rendimentos: rend.valor ?? 0, previdenciaOficial: soma(t.prev), pensao: soma(t.pens), previdenciaPrivada: soma(t.priv), dependentes: cad.dependentesIrrf },
         tab,
@@ -511,7 +553,9 @@ export function montarFolha(d: Dados, tab: Tabelas, per: string, indApuracao = '
         ...(rend.ref.incompleto ?? []),
         'IRRF segue o regime de caixa (data do S-1210); a conferência por competência é aproximada',
       ];
-      const c = conferir(`irrf_${t.tipo}`, `${t.titulo} (recálculo × rubricas)`, r, [{ rotulo: `Retido (codIncIRRF ${t.ret})`, val: retido }], tab.tolerancia);
+      const refsIr = [{ rotulo: `Retido (codIncIRRF ${t.ret.join('/')})`, val: retido }];
+      if (t.tipo === 'mensal') refsIr.push({ rotulo: 'IRRF apurado pelo eSocial (S-5002, vlrCRMen)', val: s5002Soma('vlrCRMen') });
+      const c = conferir(`irrf_${t.tipo}`, `${t.titulo} (recálculo × rubricas × S-5002)`, r, refsIr, tab.tolerancia);
       if (retido.v === null && r.valor === 0) {
         c.status = 'ok';
         c.obs = 'Sem rubrica de retenção; o recálculo também resulta em imposto zero.';
@@ -571,3 +615,8 @@ export function descricaoCategoria(c?: string) {
 }
 
 export { arred };
+
+function compBr(c: string) {
+  const [a, m] = c.split('-');
+  return m ? `${m}/${a}` : c;
+}

@@ -16,19 +16,24 @@ import {
 } from '../src/calculo/regras.js';
 import { TABELAS_PADRAO, Tabelas, validarConjunto } from '../src/calculo/tabelas.js';
 import { Dados } from '../src/dominio/dados.js';
-import { montarFolha } from '../src/dominio/folha.js';
+import { montarFolha, vxRubricas, type ItemRem } from '../src/dominio/folha.js';
 import { TRABALHADORES_SINTETICOS } from '../src/demo/sinteticos.js';
 import { armComDemo, EMPRESA } from './apoio.js';
 
 const tab = new Tabelas(TABELAS_PADRAO);
 
 describe('INSS progressivo', () => {
-  it('confere com a parcela a deduzir da tabela 2026', () => {
-    // 3.000,00 × 12% − 111,40 = 248,60
-    expect(calcularInss(3000, '2026-08', tab).valor).toBe(248.6);
-    expect(calcularInss(1621, '2026-01', tab).valor).toBe(121.58);
-    // acima do teto: contribuição máxima 988,09
-    expect(calcularInss(20000, '2026-05', tab).valor).toBe(988.09);
+  it('trunca cada faixa em centavos, como o eSocial no S-5001 (vrCpSeg)', () => {
+    // 121,575 → 121,57 | 1.281,84 × 9% = 115,3656 → 115,36 | 97,16 × 12% = 11,6592 → 11,65
+    expect(calcularInss(3000, '2026-08', tab).valor).toBe(248.58);
+    expect(calcularInss(1621, '2026-01', tab).valor).toBe(121.57);
+    // acima do teto: 121,57 + 115,36 + 174,17 + 576,97
+    expect(calcularInss(20000, '2026-05', tab).valor).toBe(988.07);
+    // 2024: 105,90 + 112,92 + 160,00 + 530,03 = 908,85 (contribuição máxima divulgada)
+    expect(calcularInss(10000, '2024-03', tab).valor).toBe(908.85);
+    const r = calcularInss(3000, '2026-08', tab);
+    expect(r.ref.versao).toBe('2');
+    expect(r.ref.memoria?.map((m) => m.valor)).toEqual([121.57, 115.36, 11.65]);
   });
   it('usa a tabela vigente na competência e registra fonte e versão', () => {
     const r = calcularInss(3000, '2025-06', tab);
@@ -39,6 +44,20 @@ describe('INSS progressivo', () => {
     const r = calcularInss(3000, '2019-01', tab);
     expect(r.valor).toBeNull();
     expect(r.ref.incompleto?.[0]).toMatch(/não cadastrada/);
+  });
+});
+
+describe('valor retido pelas rubricas', () => {
+  // férias pagas no mês com gozo no seguinte: INSS "provisionado" (desconto, tipo 2) e o mesmo
+  // valor repetido em rubricas informativas (tipos 3 e 4) — o eSocial (vrDescSeg) só soma o desconto
+  const item = (cod: string, tp: string, cp: string, v: number) =>
+    ({ codRubr: cod, ideTabRubr: 'T', rub: { tp, cp }, vNum: v, valor: { v, o: 'xml', f: 'moeda' } }) as unknown as ItemRem;
+  it('soma descontos, subtrai proventos e ignora rubricas informativas', () => {
+    const itens = [item('A', '2', '31', 300), item('B', '2', '31', 100.1), item('C', '3', '31', 100.1), item('D', '4', '31', 100.1), item('E', '1', '31', 0.1)];
+    const r = vxRubricas(itens, ['31'], 'cp', 'teste');
+    expect(r.v).toBe(400);
+    expect(r.c?.parametros).toEqual({ rubricasInformativasIgnoradas: 2 });
+    expect(vxRubricas([item('C', '3', '31', 50)], ['31'], 'cp', 'teste').o).toBe('ausente');
   });
 });
 

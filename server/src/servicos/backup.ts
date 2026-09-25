@@ -19,6 +19,7 @@ const TABELAS = [
   'arquivos_xml',
   'eventos',
   'recibos',
+  'rubricas_recibo',
   'ocorrencias',
   'conflitos',
   'complementos',

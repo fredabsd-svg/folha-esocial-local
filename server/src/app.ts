@@ -12,6 +12,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { existsSync } from 'node:fs';
 import type { Config } from './config.js';
 import { Armazenamento } from './db/armazenamento.js';
+import { reprocessarRubricasDosRecibos } from './importacao/importador.js';
 import { registrarRotas } from './rotas.js';
 import { log } from './util/log.js';
 
@@ -29,7 +30,18 @@ export async function criarEstado(cfg: Config): Promise<Estado> {
       estado.arm = await Armazenamento.abrir(cfg);
     },
   };
+  await atualizarDadosAntigos(estado);
   return estado;
+}
+
+/** Ajustes únicos em bancos criados por versões anteriores (idempotentes). */
+async function atualizarDadosAntigos(estado: Estado) {
+  const arm = estado.arm;
+  if (!arm.obterConfig<boolean>('reprocessado:rubricas_recibo_v1', false)) {
+    const r = await reprocessarRubricasDosRecibos(arm, estado.cfg);
+    arm.salvarConfig('reprocessado:rubricas_recibo_v1', true);
+    if (r.rubricas) log.info('Rubricas dos recibos extraídas das importações existentes', { rubricas: r.rubricas });
+  }
 }
 
 const CSP = [

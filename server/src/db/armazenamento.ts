@@ -185,6 +185,30 @@ const MIGRACOES: string[] = [
     detalhe TEXT
   );
   `,
+  // 2: dados das rubricas informados pelo eSocial no recibo do S-1200/S-1210/S-2299
+  //    (retornoEvento/recibo/rubricas/rubrica) — usados quando o S-1010 não foi importado
+  `
+  CREATE TABLE rubricas_recibo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    emp_chave TEXT,
+    evento_id TEXT NOT NULL,
+    nr_recibo_evento TEXT,
+    cod_rubr TEXT NOT NULL,
+    ide_tab_rubr TEXT NOT NULL,
+    per_apur TEXT,
+    nat_rubr TEXT,
+    tp_rubr TEXT,
+    inc_cp TEXT,
+    inc_irrf TEXT,
+    inc_fgts TEXT,
+    inc_pis TEXT,
+    nr_recibo_tabela TEXT,
+    id_evento_tabela TEXT,
+    importacao_id INTEGER,
+    UNIQUE (evento_id, cod_rubr, ide_tab_rubr)
+  );
+  CREATE INDEX ix_rubrec ON rubricas_recibo(emp_chave, cod_rubr, ide_tab_rubr);
+  `,
 ];
 
 export class Armazenamento {

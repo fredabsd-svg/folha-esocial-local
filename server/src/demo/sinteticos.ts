@@ -89,6 +89,32 @@ interface EventoGerado {
   recibo: string;
   dh: string;
   totalizadores: string[];
+  /** Rubricas que o eSocial devolve no recibo (S-1200/S-2299: INSS/FGTS; S-1210: IRRF). */
+  rubricasRecibo?: { cods: string[]; modo: 'cp' | 'ir'; per: string };
+}
+
+// incidências no recibo vêm sem zero à esquerda, como no arquivo real do eSocial Download
+const semZero = (c: string) => String(Number(c));
+
+function rubricasXml(r: NonNullable<EventoGerado['rubricasRecibo']>) {
+  return el(
+    'rubricas',
+    r.cods.map((cod) => {
+      const rb = RUB[cod];
+      const attrs: Record<string, string> = {
+        nrR: `1.1.${String(8_000_000_000_000_000_000n + BigInt(Number(cod))).slice(-19)}`,
+        idE: `ID1${EMPRESA_SINTETICA.raiz}000000202401100900${String(Number(cod) % 100000).padStart(5, '0')}`,
+        prA: r.per,
+        idT: 'TAB01',
+        cdR: cod,
+        ntR: rb.nat,
+        tpR: rb.tp,
+      };
+      if (r.modo === 'cp') Object.assign(attrs, { inCP: semZero(rb.cp), inFGTS: semZero(rb.fgts) });
+      else attrs.inIR = semZero(rb.ir);
+      return el('rubrica', '', attrs);
+    }),
+  );
 }
 
 function evento(tag: string, corpo: Filho, dh: string): EventoGerado {
@@ -120,7 +146,7 @@ function envelopeDownload(ev: EventoGerado): string {
           el('versaoAppProcessamento', 'SINTETICO'),
           el('dhProcessamento', ev.dh),
         ]),
-        el('recibo', [el('nrRecibo', ev.recibo), el('hash', 'SINTETICO')]),
+        el('recibo', [el('nrRecibo', ev.recibo), el('hash', 'SINTETICO'), ev.rubricasRecibo ? rubricasXml(ev.rubricasRecibo) : null]),
         tot,
       ],
       { Id: `ID${ev.id.slice(2)}R` },
@@ -241,15 +267,20 @@ interface Demonstrativo {
 }
 
 /** Monta demonstrativo mensal com INSS, IRRF e VT calculados pelas regras do próprio sistema. */
-function mensal(t: Trab, comp: string, proventos: Item[], inssJaDescontado = 0, baseInssOutros = 0): Item[] {
+/**
+ * Demonstrativo mensal com INSS, IRRF e VT calculados pelas regras do próprio sistema.
+ * Como no S-5002 (S-1.3), o IRRF do mês considera também as férias pagas na competência
+ * (rendOutros/prevOutros).
+ */
+function mensal(t: Trab, comp: string, proventos: Item[], inssJaDescontado = 0, baseInssOutros = 0, rendOutros = 0, prevOutros = 0): Item[] {
   const itens = [...proventos];
   const base = somaInc(itens, 'cp', ['11']) + baseInssOutros;
   const inssTotal = calcularInss(base, comp, tabelas).valor!;
   const inss = arred(inssTotal - inssJaDescontado);
   if (t.categ !== '901') itens.push({ cod: '5000', valor: inss });
-  const rend = somaInc(itens, 'ir', ['11']);
+  const rend = somaInc(itens, 'ir', ['11']) + rendOutros;
   const irrf = calcularIrrf(
-    { competencia: comp, tipo: 'mensal', rendimentos: rend, previdenciaOficial: inss, pensao: 0, previdenciaPrivada: 0, dependentes: t.deps },
+    { competencia: comp, tipo: 'mensal', rendimentos: rend, previdenciaOficial: inss + prevOutros, pensao: 0, previdenciaPrivada: 0, dependentes: t.deps },
     tabelas,
   ).valor!;
   if (irrf > 0) itens.push({ cod: '5010', valor: irrf });
@@ -378,10 +409,58 @@ function s1200(t: Trab, comp: string, dms: Demonstrativo[], dh: string, retifica
   const vrDescSeg = somar(todos.filter((i) => RUB[i.cod].cp === '31').map((i) => i.valor));
   ev.totalizadores.push(totalizadorCP(ev, t, comp, [{ ind13: 0, valor: base }], vrCpSeg, vrDescSeg, dh));
   ev.totalizadores.push(totalizadorFGTS(ev, t, comp, [{ tpValor: '11', base: somaInc(todos, 'fgts', ['11']) }], dh));
+  for (const d of dms) itensPorDm.set(`${t.cpf}|${d.ide}`, d.itens);
+  ev.rubricasRecibo = { cods: [...new Set(todos.map((i) => i.cod))], modo: 'cp', per: comp };
   return ev;
 }
 
+/** Itens de cada demonstrativo (para o recibo do S-1210 e o S-5002). */
+const itensPorDm = new Map<string, Item[]>();
+
+/** S-5002 (IRRF por trabalhador) como o eSocial gera a partir do S-1210: férias somadas ao mês. */
+function totalizadorIRRF(evBase: EventoGerado, t: Trab, perApur: string, pagamentos: Array<{ dt: string; tp: number; perRef: string; ide: string }>, dh: string) {
+  const id = novoId(dh);
+  const dmXml = pagamentos.map((p) => {
+    const itens = itensPorDm.get(`${t.cpf}|${p.ide}`) ?? [];
+    const rend = somaInc(itens, 'ir', ['11', '13']);
+    const prev = somar(itens.filter((i) => ['41', '43'].includes(RUB[i.cod].ir)).map((i) => i.valor));
+    const ir = somar(itens.filter((i) => ['31', '33'].includes(RUB[i.cod].ir)).map((i) => i.valor));
+    return el('dmDev', [
+      el('perRef', p.perRef),
+      el('ideDmDev', p.ide),
+      el('tpPgto', p.tp),
+      el('dtPgto', p.dt),
+      el('codCateg', t.categ),
+      rend ? el('infoIR', [el('tpInfoIR', 11), el('valor', v2(rend))]) : null,
+      prev ? el('infoIR', [el('tpInfoIR', 41), el('valor', v2(prev))]) : null,
+      ir ? el('infoIR', [el('tpInfoIR', 31), el('valor', v2(ir))]) : null,
+      el('totApurMen', [el('CRMen', '056107'), el('vlrRendTrib', v2(rend)), el('vlrPrevOficial', v2(prev)), el('vlrCRMen', v2(ir))]),
+    ]);
+  });
+  return (
+    `<eSocial xmlns="${NS_EVT('evtIrrfBenef')}">` +
+    el(
+      'evtIrrfBenef',
+      [
+        el('ideEvento', [el('nrRecArqBase', evBase.recibo), el('perApur', perApur)]),
+        ideEmpregador(),
+        el('ideTrabalhador', [el('cpfBenef', t.cpf), dmXml]),
+      ],
+      { Id: id },
+    ) +
+    '</eSocial>'
+  );
+}
+
 function s1210(t: Trab, perApur: string, pagamentos: Array<{ dt: string; tp: number; perRef: string; ide: string; liq: number }>, dh: string) {
+  const ev = s1210Evento(t, perApur, pagamentos, dh);
+  const cods = [...new Set(pagamentos.flatMap((p) => (itensPorDm.get(`${t.cpf}|${p.ide}`) ?? []).map((i) => i.cod)))];
+  if (cods.length) ev.rubricasRecibo = { cods, modo: 'ir', per: perApur };
+  ev.totalizadores.push(totalizadorIRRF(ev, t, perApur, pagamentos, dh));
+  return ev;
+}
+
+function s1210Evento(t: Trab, perApur: string, pagamentos: Array<{ dt: string; tp: number; perRef: string; ide: string; liq: number }>, dh: string) {
   return evento(
     'evtPgtos',
     [
@@ -406,6 +485,7 @@ export interface ArquivoSintetico {
 
 export function gerarEventosSinteticos(): { eventos: EventoGerado[]; descricao: string[] } {
   seqId = 0;
+  itensPorDm.clear();
   seqRecibo = 0;
   const evs: EventoGerado[] = [];
   const [w1, w2, w3, w4] = TRABALHADORES_SINTETICOS;
@@ -646,17 +726,14 @@ export function gerarEventosSinteticos(): { eventos: EventoGerado[]; descricao: 
     const vTerco = arred(vFer / 3);
     const baseFer = somar([vFer, vTerco]);
     const inssFer = calcularInss(baseFer, comp, tabelas).valor!;
-    const irFer = calcularIrrf(
-      { competencia: comp, tipo: 'ferias', rendimentos: baseFer, previdenciaOficial: inssFer, pensao: 0, previdenciaPrivada: 0, dependentes: w2.deps },
-      tabelas,
-    ).valor!;
+    // férias: INSS descontado no recibo de férias; o IRRF do mês (férias + salário) é
+    // retido no demonstrativo mensal, como o eSocial apura no S-5002
     const itensFer: Item[] = [
       { cod: '1100', valor: vFer, qtd: 20 },
       { cod: '1101', valor: vTerco },
       { cod: '5003', valor: inssFer },
-      ...(irFer > 0 ? [{ cod: '5011', valor: irFer }] : []),
     ];
-    const itensMes = mensal(w2, comp, [{ cod: '1000', valor: arred((5500 / 30) * 10), qtd: 10 }], inssFer, baseFer);
+    const itensMes = mensal(w2, comp, [{ cod: '1000', valor: arred((5500 / 30) * 10), qtd: 10 }], inssFer, baseFer, baseFer, inssFer);
     evs.push(
       s1200(w2, comp, [{ ide: 'FER202607', itens: itensFer }, { ide: 'FOL202607', itens: itensMes }], '2026-08-03T10:01:00'),
     );
@@ -741,6 +818,8 @@ export function gerarEventosSinteticos(): { eventos: EventoGerado[]; descricao: 
       totalizadorFGTS(ev2299, w3, comp, [{ tpValor: '11', base: saldo }, { tpValor: '12', base: decimo }, { tpValor: '21', base: aviso }], '2026-08-25T09:00:00'),
     );
     evs.push(ev2299);
+    itensPorDm.set(`${w3.cpf}|RESC202608`, verbas);
+    ev2299.rubricasRecibo = { cods: verbas.map((i) => i.cod), modo: 'cp', per: comp };
     addPag(w3, '2026-08', { dt: '2026-08-28', tp: 2, perRef: comp, ide: 'RESC202608', liq: liquidoDe(verbas) });
   }
 
@@ -788,8 +867,15 @@ export function gerarEventosSinteticos(): { eventos: EventoGerado[]; descricao: 
 }
 
 /** Arquivos no formato do eSocial Download (evento + recibo no mesmo XML). */
-export function gerarArquivosSinteticos(): ArquivoSintetico[] {
-  const { eventos } = gerarEventosSinteticos();
+const TAGS_CADASTRO = new Set(['evtInfoEmpregador', 'evtTabEstab', 'evtTabRubrica', 'evtTabLotacao', 'evtAdmissao']);
+
+/**
+ * Arquivos no formato do eSocial Download (evento + recibo no mesmo XML).
+ * `semTabelas` imita um pedido "eventos do período": sem S-1000/S-1005/S-1010/S-1020/S-2200.
+ */
+export function gerarArquivosSinteticos(opcoes: { semTabelas?: boolean } = {}): ArquivoSintetico[] {
+  const { eventos: todos } = gerarEventosSinteticos();
+  const eventos = opcoes.semTabelas ? todos.filter((e) => !TAGS_CADASTRO.has(e.tag)) : todos;
   return eventos.map((ev, i) => ({
     nome: `${String(i + 1).padStart(4, '0')}_${ev.tag}_${ev.id}.xml`,
     conteudo: envelopeDownload(ev),
@@ -817,8 +903,8 @@ export function zipar(arquivos: Array<{ nome: string; conteudo: string | Buffer 
   });
 }
 
-export async function gerarZipSintetico(): Promise<Buffer> {
-  return zipar(gerarArquivosSinteticos().map((a) => ({ nome: `download/${a.nome}`, conteudo: a.conteudo })));
+export async function gerarZipSintetico(opcoes: { semTabelas?: boolean } = {}): Promise<Buffer> {
+  return zipar(gerarArquivosSinteticos(opcoes).map((a) => ({ nome: `download/${a.nome}`, conteudo: a.conteudo })));
 }
 
 export { calcularFgts };

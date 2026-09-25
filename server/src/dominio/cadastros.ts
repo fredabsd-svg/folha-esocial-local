@@ -4,9 +4,9 @@
  * vigentes em uma data, afastamentos e desligamentos.
  */
 import type { Val } from '../compartilhado/tipos.js';
-import { COD_MOT_AFAST_FERIAS, descrever, MOT_AFAST, TP_RUBR } from '../esocial/catalogo.js';
+import { COD_MOT_AFAST_FERIAS, descrever, MOT_AFAST, NAT_RUBR, TP_RUBR } from '../esocial/catalogo.js';
 import { sel, txt, um, type Ctx } from '../xml/arvore.js';
-import { type Dados, type EvCarregado, va, vm, vx } from './dados.js';
+import { type Dados, type EvCarregado, type LinhaRubricaRecibo, va, vm, vx } from './dados.js';
 
 // ------------------------------------------------------------------ tabelas com vigência
 export interface VersaoTabela {
@@ -137,10 +137,14 @@ export interface InfoRubrica {
 export function rubrica(d: Dados, codRubr: string, ideTabRubr: string, per: string): InfoRubrica {
   const v = vigenteEm(versoesTabela(d, 'S-1010').get(`${codRubr}|${ideTabRubr}`), per);
   if (!v) {
-    const obs = `S-1010 da rubrica ${codRubr} (tabela ${ideTabRubr}) vigente em ${per} não foi importado`;
+    const doRecibo = rubricaDoRecibo(d, codRubr, ideTabRubr, per);
+    if (doRecibo) return doRecibo;
+    const obs = `S-1010 da rubrica ${codRubr} (tabela ${ideTabRubr}) vigente em ${per} não foi importado e o recibo do eSocial não trouxe os dados dela`;
+    const comp = { escopo: 'rubrica', referencia: `${codRubr}|${ideTabRubr}`, campo: 'descricao', rotulo: `Descrição da rubrica ${codRubr}` };
+    const m = d.complemento(comp.escopo, comp.referencia, comp.campo);
     return {
       encontrada: false,
-      dsc: va(obs, 'texto'),
+      dsc: m ? vm(m, 'texto') : va(obs, 'texto', comp),
       natRubr: va(obs),
       tpRubr: va(obs),
       codIncCP: va(obs),
@@ -164,6 +168,71 @@ export function rubrica(d: Dados, codRubr: string, ideTabRubr: string, per: stri
   r.cp = r.codIncCP.v as string | undefined;
   r.ir = r.codIncIRRF.v as string | undefined;
   r.fgts = r.codIncFGTS.v as string | undefined;
+  return r;
+}
+
+/**
+ * Dados da rubrica informados pelo eSocial no recibo do S-1200/S-1210/S-2299
+ * (retornoEvento/recibo/rubricas/rubrica). O recibo do S-1200 traz natureza,
+ * tipo e incidências de INSS/FGTS; o do S-1210 traz a incidência de IRRF.
+ * O recibo não traz a descrição: exibe-se a natureza, e a descrição pode ser complementada.
+ */
+function rubricaDoRecibo(d: Dados, codRubr: string, ideTabRubr: string, per: string): InfoRubrica | undefined {
+  const linhas = d.rubricasDoRecibo(codRubr, ideTabRubr);
+  if (!linhas.length) return undefined;
+  // prefere o recibo da mesma competência; depois o mais recente
+  const ordenadas = [...linhas].sort((a, b) => Number(b.per_apur === per) - Number(a.per_apur === per) || (b.per_apur ?? '').localeCompare(a.per_apur ?? ''));
+  const achar = (campo: keyof LinhaRubricaRecibo) => ordenadas.find((l) => l[campo] !== null && l[campo] !== undefined && l[campo] !== '');
+  const val = (campo: keyof LinhaRubricaRecibo, atributo: string): Val => {
+    const l = achar(campo);
+    if (!l) return va(`O recibo não informou ${atributo} desta rubrica`, 'texto');
+    return {
+      v: String(l[campo]),
+      o: 'xml',
+      f: 'texto',
+      x: {
+        tipoEvento: `Recibo do ${l.tipo_evento ?? 'evento'}`,
+        eventoId: l.evento_id,
+        recibo: l.nr_recibo_evento ?? undefined,
+        arquivo: l.arquivo ?? undefined,
+        campo: `retornoEvento/recibo/rubricas/rubrica[cdR=${codRubr}]/@${atributo}`,
+      },
+      obs: 'Dado da rubrica informado pelo eSocial no recibo (o S-1010 não foi importado).',
+    };
+  };
+  const natRubr = val('nat_rubr', 'ntR');
+  const tpRubr = val('tp_rubr', 'tpR');
+  const comp = { escopo: 'rubrica', referencia: `${codRubr}|${ideTabRubr}`, campo: 'descricao', rotulo: `Descrição da rubrica ${codRubr}` };
+  const m = d.complemento(comp.escopo, comp.referencia, comp.campo);
+  const nat = natRubr.v as string | undefined;
+  const dsc: Val = m
+    ? vm(m, 'texto')
+    : {
+        v: nat ? `${NAT_RUBR[nat] ?? `Natureza ${nat}`} (rubrica ${codRubr})` : `Rubrica ${codRubr}`,
+        o: 'calculado',
+        f: 'texto',
+        c: {
+          regra: 'DESCRICAO_PELA_NATUREZA',
+          versao: '1',
+          formula: 'O recibo do eSocial não traz a descrição da rubrica: exibida a descrição da natureza (Tabela 03). Informe a descrição da empresa ou importe o S-1010.',
+          fontes: natRubr.x ? [natRubr.x] : undefined,
+        },
+        comp,
+      };
+  const r: InfoRubrica = {
+    encontrada: true,
+    dsc,
+    natRubr,
+    tpRubr,
+    codIncCP: val('inc_cp', 'inCP'),
+    codIncIRRF: val('inc_irrf', 'inIR'),
+    codIncFGTS: val('inc_fgts', 'inFGTS'),
+  };
+  r.tp = r.tpRubr.v as string | undefined;
+  r.nat = nat;
+  r.cp = (r.codIncCP.v as string | null) ?? undefined;
+  r.ir = (r.codIncIRRF.v as string | null) ?? undefined;
+  r.fgts = (r.codIncFGTS.v as string | null) ?? undefined;
   return r;
 }
 
@@ -254,7 +323,17 @@ export function cadastro(d: Dados, cpf: string, ateData: string, nomeRemun?: { e
 
   const fonteDeps = alt && sel(altDados, 'dependente').length ? { ev: alt, c: altDados } : adm ? { ev: adm, c: trab } : undefined;
   let dependentesIrrf: number | null = null;
-  let dependentesVal: Val = va('Dependentes não conhecidos: S-2200/S-2205 não importado', 'inteiro');
+  let dependentesVal: Val = va('Dependentes não conhecidos: S-2200/S-2205 não importado', 'inteiro', {
+    escopo: 'trabalhador',
+    referencia: cpf,
+    campo: 'dependentes_irrf',
+    rotulo: 'Quantidade de dependentes para IRRF',
+  });
+  const compDeps = d.complemento('trabalhador', cpf, 'dependentes_irrf');
+  if (compDeps && Number.isInteger(Number(compDeps.valor))) {
+    dependentesIrrf = Number(compDeps.valor);
+    dependentesVal = vm(compDeps, 'inteiro');
+  }
   if (fonteDeps) {
     const deps = sel(fonteDeps.c, 'dependente').filter((x) => txt(x, 'depIRRF') === 'S');
     dependentesIrrf = deps.length;
@@ -323,15 +402,42 @@ export function contrato(d: Dados, cpf: string, matricula: string | undefined, a
       origem: tsv,
     };
   }
+  // Sem S-2200/S-2300: usa a alteração contratual (S-2206) mais recente, se houver,
+  // e os complementos informados pelo usuário para o que faltar.
   const obs = 'Vínculo não encontrado: S-2200/S-2300 do trabalhador não foi importado';
+  const alt = d
+    .doTrabalhador('S-2206', cpf)
+    .filter((e) => (!matricula || e.matricula === matricula) && (e.dataRef ?? '') <= ateData)
+    .sort((a, b) => (a.dataRef ?? '').localeCompare(b.dataRef ?? '') || a.ordem.localeCompare(b.ordem))
+    .pop();
+  const ic = alt ? um(alt.raiz, 'altContratual/infoContrato') : undefined;
+  const doXmlOuComp = (caminho: string | null, campo: string, rotulo: string, f: Val['f']): Val => {
+    if (alt && caminho) {
+      const x = vx(alt, um(ic, caminho), f);
+      if (x.o === 'xml') return x;
+    }
+    const m = d.complemento('trabalhador', cpf, campo);
+    if (m) return vm(m, f);
+    return va(alt ? `${rotulo} não consta no S-2206 importado e o S-2200 não foi importado` : obs, f, {
+      escopo: 'trabalhador',
+      referencia: cpf,
+      campo,
+      rotulo,
+    });
+  };
+  const salario = doXmlOuComp('remuneracao/vrSalFx', 'salario', 'Salário mensal (R$)', 'moeda');
+  let undSalFixo = alt ? vx(alt, um(ic, 'remuneracao/undSalFixo'), 'texto') : va(obs, 'texto');
+  // salário complementado é informado como mensal
+  if (salario.o === 'complementado' && undSalFixo.o === 'ausente') undSalFixo = { ...salario, v: '5', f: 'texto' };
   return {
-    cargo: va(obs, 'texto'),
-    cbo: va(obs, 'texto'),
-    salario: va(obs, 'moeda'),
-    undSalFixo: va(obs, 'texto'),
-    codCateg: va(obs, 'texto'),
-    tpContr: va(obs, 'texto'),
-    dtAdm: va(obs, 'data'),
+    cargo: doXmlOuComp('nmCargo', 'cargo', 'Cargo', 'texto'),
+    cbo: doXmlOuComp('CBOCargo', 'cbo', 'CBO', 'texto'),
+    salario,
+    undSalFixo,
+    codCateg: alt ? vx(alt, um(ic, 'codCateg'), 'texto') : va(obs, 'texto'),
+    tpContr: alt ? vx(alt, um(ic, 'duracao/tpContr'), 'texto') : va(obs, 'texto'),
+    dtAdm: doXmlOuComp(null, 'data_admissao', 'Data de admissão', 'data'),
+    origem: alt,
   };
 }
 
