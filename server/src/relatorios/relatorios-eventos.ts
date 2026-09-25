@@ -168,12 +168,8 @@ export function avisoReciboFerias(cx: Contexto): Documento {
         const soma = (f: (i: (typeof itens)[number]) => boolean) => somar(itens.filter(f).map((i) => i.vNum));
         const baseInss = soma((i) => i.rub.tp === '1' && i.rub.cp === '11') - soma((i) => i.rub.tp === '2' && i.rub.cp === '11');
         const rendIr = soma((i) => i.rub.tp === '1' && i.rub.ir === '13') - soma((i) => i.rub.tp === '2' && i.rub.ir === '13');
-        const ir = calcularIrrf(
-          { competencia: t.dms[0].ev.perApur ?? per, tipo: 'ferias', rendimentos: rendIr, previdenciaOficial: soma((i) => i.rub.ir === '43'), pensao: soma((i) => i.rub.ir === '53'), previdenciaPrivada: soma((i) => i.rub.ir === '48'), dependentes: cad.dependentesIrrf },
-          cx.tab,
-        );
         const retido = soma((i) => i.rub.ir === '33');
-        const cmp = comparar(ir.valor, itens.some((i) => i.rub.ir === '33') ? retido : null, cx.tab.tolerancia, true);
+        const confIr = t.conferencias.find((c) => c.id === 'irrf_mensal');
         doc.blocos.push({
           titulo: `Recibo de férias — demonstrativo ${dm.ideDmDev} (competência ${competenciaBr(dm.ev.perApur)})`,
           tabela: tabelaItens(dm, cx.p.incluirInformativas),
@@ -191,10 +187,14 @@ export function avisoReciboFerias(cx: Contexto): Documento {
               rotulo: 'Base do INSS das férias (rubricas)',
               val: vc(arred(baseInss), { regra: 'BASE_INSS_FERIAS', versao: '1', formula: 'Σ proventos − Σ descontos com codIncCP 11 no demonstrativo de férias' }, 'moeda'),
             },
-            { rotulo: 'IRRF sobre férias (recálculo)', val: vc(ir.valor, ir.ref, 'moeda') },
-            { rotulo: 'IRRF sobre férias retido (codIncIRRF 33)', val: itens.some((i) => i.rub.ir === '33') ? vc(retido, { regra: 'SOMA_RUBRICAS', versao: '1', formula: 'Σ rubricas com codIncIRRF 33' }, 'moeda') : va('Sem rubrica de retenção sobre férias', 'moeda') },
-            { rotulo: 'Situação da conferência do IRRF', val: STATUS[cmp.status] },
+            {
+              rotulo: 'Rendimentos tributáveis das férias',
+              val: vc(arred(rendIr), { regra: 'RENDIMENTOS_FERIAS', versao: '1', formula: 'Σ proventos − Σ descontos com codIncIRRF 13 no demonstrativo de férias' }, 'moeda'),
+            },
+            { rotulo: 'IRRF retido nas férias (codIncIRRF 33)', val: itens.some((i) => i.rub.ir === '33') ? vc(retido, { regra: 'SOMA_RUBRICAS', versao: '1', formula: 'Σ rubricas com codIncIRRF 33' }, 'moeda') : 'Sem retenção nas férias' },
+            { rotulo: 'Conferência do IRRF do mês (com as férias)', val: confIr ? STATUS[confIr.status] : 'Sem IRRF a conferir' },
           ],
+          notas: ['Como no totalizador S-5002, o eSocial apura o IRRF das férias junto com a remuneração do mês; a conferência completa está no extrato mensal.'],
           assinaturas: ['Recebi a importância líquida discriminada neste recibo de férias.', 'Data: ____/____/________', 'Assinatura do trabalhador'],
         });
         if (!dm.pagamento) pend.push({ nivel: 'alerta', categoria: 'evento_ausente', mensagem: `Pagamento (S-1210) do demonstrativo de férias ${dm.ideDmDev} não encontrado.`, cpf });
@@ -606,7 +606,14 @@ export function eventosAusentes(cx: Contexto): Documento {
   const iniMes = `${per}-01`;
   const fimMes = ultimoDiaMes(per);
   if (!cx.d.todos('S-1000').length) pend.push({ nivel: 'alerta', categoria: 'evento_ausente', mensagem: 'Informações do empregador (S-1000) não importadas.', competencia: per });
-  if (!cx.d.todos('S-1010').length) pend.push({ nivel: 'alerta', categoria: 'evento_ausente', mensagem: 'Tabela de rubricas (S-1010) não importada: tipos e incidências das rubricas ficarão ausentes.', competencia: per });
+  if (!cx.d.todos('S-1010').length) {
+    const doRecibo = cx.d.qtdRubricasDoRecibo();
+    pend.push(
+      doRecibo
+        ? { nivel: 'info', categoria: 'evento_ausente', mensagem: `Tabela de rubricas (S-1010) não importada: tipo e incidências de ${doRecibo} rubrica(s) foram lidos dos recibos do eSocial; as descrições podem ser informadas em Complementos.`, competencia: per }
+        : { nivel: 'alerta', categoria: 'evento_ausente', mensagem: 'Tabela de rubricas (S-1010) não importada: tipos e incidências das rubricas ficarão ausentes.', competencia: per },
+    );
+  }
   const folhaComp = montarFolha(cx.d, cx.tab, per, '1');
   const comRemun = new Set(folhaComp.map((t) => t.cpf));
   for (const v of vinculos(cx.d)) {

@@ -49,6 +49,62 @@ export interface ReciboExtraido {
   dhProcessamento?: string;
   dhRecepcao?: string;
   protocolo?: string;
+  empChave?: string;
+  /** Rubricas informadas pelo eSocial no recibo (retornoEvento/recibo/rubricas/rubrica). */
+  rubricas: RubricaRecibo[];
+}
+
+export interface RubricaRecibo {
+  codRubr: string;
+  ideTabRubr: string;
+  perApur?: string;
+  natRubr?: string;
+  tpRubr?: string;
+  codIncCP?: string;
+  codIncIRRF?: string;
+  codIncFGTS?: string;
+  codIncPIS?: string;
+  nrReciboTabela?: string;
+  idEventoTabela?: string;
+}
+
+/**
+ * O recibo informa as incidências sem zero à esquerda (ex.: "0", "9"), enquanto o
+ * S-1010 usa "00", "09". Normaliza para o formato de dois dígitos do leiaute.
+ */
+export function normalizarIncidencia(v?: string): string | undefined {
+  if (v === undefined || v === '') return undefined;
+  const s = v.trim();
+  return /^\d$/.test(s) ? `0${s}` : s;
+}
+
+/** Lê os atributos (abreviados ou por extenso) de cada <rubrica> do recibo. */
+function rubricasDoRecibo(ret: XNode): RubricaRecibo[] {
+  const bloco = ret.c?.find((f) => f.n === 'recibo')?.c?.find((f) => f.n === 'rubricas');
+  const r: RubricaRecibo[] = [];
+  for (const rub of bloco?.c ?? []) {
+    if (rub.n !== 'rubrica') continue;
+    // atributos e, por robustez, também filhos com o mesmo nome
+    const v: Record<string, string> = { ...(rub.a ?? {}) };
+    for (const f of rub.c ?? []) if (f.t !== undefined) v[f.n] = f.t;
+    const pega = (...nomes: string[]) => nomes.map((n) => v[n]).find((x) => x !== undefined && x !== '');
+    const codRubr = pega('cdR', 'codRubr');
+    if (!codRubr) continue;
+    r.push({
+      codRubr,
+      ideTabRubr: pega('idT', 'ideTabRubr') ?? '',
+      perApur: pega('prA', 'perApur', 'iniValid'),
+      natRubr: pega('ntR', 'natRubr'),
+      tpRubr: pega('tpR', 'tpRubr'),
+      codIncCP: normalizarIncidencia(pega('inCP', 'codIncCP')),
+      codIncIRRF: normalizarIncidencia(pega('inIR', 'codIncIRRF')),
+      codIncFGTS: normalizarIncidencia(pega('inFGTS', 'codIncFGTS')),
+      codIncPIS: normalizarIncidencia(pega('inPIS', 'codIncPisPasep')),
+      nrReciboTabela: pega('nrR'),
+      idEventoTabela: pega('idE'),
+    });
+  }
+  return r;
 }
 
 export interface ResultadoExtracao {
@@ -284,6 +340,8 @@ function extrairRecibo(ret: XNode, eventoId: string): ReciboExtraido | null {
     dhProcessamento: texto(ret, 'processamento/dhProcessamento'),
     dhRecepcao: texto(ret, 'recepcao/dhRecepcao'),
     protocolo: texto(ret, 'recepcao/protocoloEnvioLote'),
+    empChave: chaveEmpregador(texto(ret, 'ideEmpregador/tpInsc'), texto(ret, 'ideEmpregador/nrInsc')),
+    rubricas: rubricasDoRecibo(ret),
   };
 }
 

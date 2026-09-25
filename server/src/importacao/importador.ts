@@ -120,6 +120,12 @@ export async function importarArquivo(
     `INSERT INTO conflitos (evento_id, importacao_id, arquivo_xml_id, hash_conteudo, detectado_em, descricao)
      VALUES (?, ?, ?, ?, ?, ?)`,
   );
+  const insRubricaRecibo = db.prepare(
+    `INSERT OR IGNORE INTO rubricas_recibo (emp_chave, evento_id, nr_recibo_evento, cod_rubr, ide_tab_rubr, per_apur, nat_rubr, tp_rubr,
+       inc_cp, inc_irrf, inc_fgts, inc_pis, nr_recibo_tabela, id_evento_tabela, importacao_id)
+     VALUES (@empChave, @eventoId, @nrRecibo, @codRubr, @ideTabRubr, @perApur, @natRubr, @tpRubr,
+       @codIncCP, @codIncIRRF, @codIncFGTS, @codIncPIS, @nrReciboTabela, @idEventoTabela, @importacaoId)`,
+  );
   const selRecibo = db.prepare('SELECT nr_recibo FROM recibos WHERE evento_id = ?');
   const insRecibo = db.prepare(
     `INSERT INTO recibos (evento_id, nr_recibo, cd_resposta, desc_resposta, dh_processamento, dh_recepcao, protocolo, importacao_id)
@@ -201,6 +207,26 @@ export async function importarArquivo(
         insOcorrencia.run(pk, arquivoId, importacaoId);
       }
       for (const r of recibos) {
+        const empDoEvento = eventos.find((e) => e.eventoId === r.eventoId)?.empChave;
+        for (const rub of r.rubricas) {
+          insRubricaRecibo.run({
+            empChave: empDoEvento ?? r.empChave ?? null,
+            eventoId: r.eventoId,
+            nrRecibo: r.nrRecibo,
+            codRubr: rub.codRubr,
+            ideTabRubr: rub.ideTabRubr,
+            perApur: rub.perApur ?? null,
+            natRubr: rub.natRubr ?? null,
+            tpRubr: rub.tpRubr ?? null,
+            codIncCP: rub.codIncCP ?? null,
+            codIncIRRF: rub.codIncIRRF ?? null,
+            codIncFGTS: rub.codIncFGTS ?? null,
+            codIncPIS: rub.codIncPIS ?? null,
+            nrReciboTabela: rub.nrReciboTabela ?? null,
+            idEventoTabela: rub.idEventoTabela ?? null,
+            importacaoId,
+          });
+        }
         const atual = selRecibo.get(r.eventoId) as { nr_recibo: string } | undefined;
         if (!atual) {
           insRecibo.run({
@@ -338,6 +364,50 @@ export function registrarEmpresasDetectadas(arm: Armazenamento, chaves: string[]
   }
 }
 
+/**
+ * Relê os arquivos originais já importados e grava as rubricas informadas nos
+ * recibos (necessário para bancos criados antes desta leitura existir).
+ * Idempotente: não duplica nada e não altera eventos.
+ */
+export async function reprocessarRubricasDosRecibos(arm: Armazenamento, cfg: Pick<Config, 'limitesXml' | 'limitesZip'>) {
+  const db = arm.db;
+  const imps = db.prepare('SELECT id, sha256, tipo FROM importacoes ORDER BY id').all() as Array<{ id: number; sha256: string; tipo: string }>;
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO rubricas_recibo (emp_chave, evento_id, nr_recibo_evento, cod_rubr, ide_tab_rubr, per_apur, nat_rubr, tp_rubr,
+       inc_cp, inc_irrf, inc_fgts, inc_pis, nr_recibo_tabela, id_evento_tabela, importacao_id)
+     SELECT e.emp_chave, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM eventos e WHERE e.evento_id = ?`,
+  );
+  let rubricas = 0;
+  const processar = (bytes: Buffer, importacaoId: number) => {
+    try {
+      const { recibos } = extrairDoDocumento(lerXml(bytes, cfg.limitesXml));
+      db.transaction(() => {
+        for (const r of recibos) {
+          for (const rub of r.rubricas) {
+            rubricas += ins.run(r.eventoId, r.nrRecibo, rub.codRubr, rub.ideTabRubr, rub.perApur ?? null, rub.natRubr ?? null, rub.tpRubr ?? null,
+              rub.codIncCP ?? null, rub.codIncIRRF ?? null, rub.codIncFGTS ?? null, rub.codIncPIS ?? null, rub.nrReciboTabela ?? null,
+              rub.idEventoTabela ?? null, importacaoId, r.eventoId).changes;
+          }
+        }
+      })();
+    } catch {
+      /* XML ilegível: já registrado como erro na importação original */
+    }
+  };
+  for (const imp of imps) {
+    let original: Buffer;
+    try {
+      original = await arm.lerOriginal(imp.sha256);
+    } catch {
+      continue;
+    }
+    if (ehZip(original)) {
+      for await (const item of lerZip(original, cfg.limitesZip)) if (item.dados) processar(item.dados, imp.id);
+    } else processar(original, imp.id);
+  }
+  return { importacoes: imps.length, rubricas };
+}
+
 /** Remove uma importação; eventos que não aparecem em nenhuma outra importação são removidos. */
 export async function excluirImportacao(arm: Armazenamento, id: number) {
   const db = arm.db;
@@ -351,6 +421,7 @@ export async function excluirImportacao(arm: Armazenamento, id: number) {
     db.prepare(
       'DELETE FROM recibos WHERE importacao_id = ? AND evento_id NOT IN (SELECT evento_id FROM eventos)',
     ).run(id);
+    db.prepare('DELETE FROM rubricas_recibo WHERE evento_id NOT IN (SELECT evento_id FROM eventos)').run();
     db.prepare('DELETE FROM arquivos_xml WHERE importacao_id = ?').run(id);
     db.prepare('DELETE FROM conflitos WHERE importacao_id = ?').run(id);
     db.prepare('DELETE FROM importacoes WHERE id = ?').run(id);

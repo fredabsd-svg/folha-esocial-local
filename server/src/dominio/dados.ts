@@ -56,9 +56,53 @@ export interface Complemento {
   informado_em: string;
 }
 
+export interface LinhaRubricaRecibo {
+  evento_id: string;
+  tipo_evento: string | null;
+  nr_recibo_evento: string | null;
+  arquivo: string | null;
+  per_apur: string | null;
+  nat_rubr: string | null;
+  tp_rubr: string | null;
+  inc_cp: string | null;
+  inc_irrf: string | null;
+  inc_fgts: string | null;
+}
+
 export class Dados {
   private cache = new Map<string, EvCarregado[]>();
   private complementos: Complemento[] | null = null;
+  private rubRecibo: Map<string, LinhaRubricaRecibo[]> | null = null;
+
+  /** Rubricas informadas nos recibos do eSocial (usadas quando falta o S-1010). */
+  rubricasDoRecibo(codRubr: string, ideTabRubr: string): LinhaRubricaRecibo[] {
+    if (!this.rubRecibo) {
+      const linhas = this.db
+        .prepare(
+          `SELECT rr.cod_rubr, rr.ide_tab_rubr, rr.evento_id, rr.nr_recibo_evento, rr.per_apur, rr.nat_rubr, rr.tp_rubr,
+                  rr.inc_cp, rr.inc_irrf, rr.inc_fgts, e.tipo AS tipo_evento,
+                  (SELECT i.nome_arquivo || ' › ' || a.caminho FROM ocorrencias o
+                     JOIN arquivos_xml a ON a.id = o.arquivo_xml_id JOIN importacoes i ON i.id = o.importacao_id
+                    WHERE o.evento_pk = e.id ORDER BY o.importacao_id LIMIT 1) AS arquivo
+             FROM rubricas_recibo rr JOIN eventos e ON e.evento_id = rr.evento_id
+            WHERE rr.emp_chave = ? AND e.situacao = 'ativo'`,
+        )
+        .all(this.empChave) as Array<LinhaRubricaRecibo & { cod_rubr: string; ide_tab_rubr: string }>;
+      this.rubRecibo = new Map();
+      for (const l of linhas) {
+        const k = `${l.cod_rubr}|${l.ide_tab_rubr}`;
+        if (!this.rubRecibo.has(k)) this.rubRecibo.set(k, []);
+        this.rubRecibo.get(k)!.push(l);
+      }
+    }
+    return this.rubRecibo.get(`${codRubr}|${ideTabRubr}`) ?? [];
+  }
+
+  /** Quantas rubricas distintas foram lidas dos recibos. */
+  qtdRubricasDoRecibo(): number {
+    this.rubricasDoRecibo('', '');
+    return this.rubRecibo!.size;
+  }
 
   constructor(
     readonly db: DB,

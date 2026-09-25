@@ -291,7 +291,7 @@ Não constam nos XMLs e deixam cálculos marcados como **incompletos**: faltas i
 
 | Exemplo de conferência | Resultado |
 |---|---|
-| INSS sobre R$ 3.000,00 em 2026 | R$ 248,60 (3.000 × 12% − 111,40) |
+| INSS sobre R$ 3.000,00 em 2026 | R$ 248,58 (121,57 + 115,36 + 11,65 — cada faixa truncada em centavos, como o eSocial faz no S-5001) |
 | IRRF sobre R$ 6.000,00 em 2026 | redutor de R$ 179,75 (exemplo oficial da RFB) |
 | Aviso prévio de quem tem 4 anos completos | 42 dias (Lei 12.506/2011) |
 

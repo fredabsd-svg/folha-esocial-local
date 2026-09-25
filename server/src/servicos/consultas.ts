@@ -4,7 +4,8 @@
 import { ultimoDiaMes } from '../calculo/regras.js';
 import type { Tabelas } from '../calculo/tabelas.js';
 import type { DB } from '../db/armazenamento.js';
-import { afastamentos, cadastro, contrato, descricaoAfastamento, desligamento, vinculos } from '../dominio/cadastros.js';
+import { afastamentos, cadastro, contrato, descricaoAfastamento, desligamento, rubrica, vinculos } from '../dominio/cadastros.js';
+import { desc, txt } from '../xml/arvore.js';
 import { Dados } from '../dominio/dados.js';
 import { montarFolha, pagamentos, type TrabalhadorFolha } from '../dominio/folha.js';
 import { infoEvento } from '../esocial/catalogo.js';
@@ -254,6 +255,67 @@ export function detalheTrabalhador(db: DB, tab: Tabelas, empresa: string, cpf: s
         `SELECT id, evento_id, tipo, per_apur, data_ref, situacao FROM eventos WHERE emp_chave = ? AND cpf = ? ORDER BY coalesce(per_apur, data_ref) DESC, tipo`,
       )
       .all(empresa, cpf),
+  };
+}
+
+/**
+ * O que falta no cadastro para os relatórios ficarem completos: trabalhadores sem
+ * S-2200/S-2300 (nome, cargo, salário, admissão, dependentes) e rubricas sem
+ * descrição (S-1010 não importado). Inclui os já complementados, para edição.
+ */
+export function pendenciasCadastro(db: DB, empresa: string) {
+  const d = new Dados(db, empresa);
+  const hoje = new Date().toISOString().slice(0, 10);
+  const cpfs = new Map<string, string | undefined>();
+  for (const t of ['S-1200', 'S-2299', 'S-2206', 'S-1210']) for (const e of d.todos(t)) if (e.cpf && !cpfs.has(e.cpf)) cpfs.set(e.cpf, e.matricula);
+  for (const v of vinculos(d)) cpfs.set(v.cpf, v.matricula);
+  const trabalhadores = [];
+  for (const [cpf, mat] of cpfs) {
+    const temVinculo = vinculos(d).some((v) => v.cpf === cpf);
+    const cad = cadastro(d, cpf, hoje);
+    const ctr = contrato(d, cpf, mat, hoje);
+    const campos = { nome: cad.nome, cargo: ctr.cargo, cbo: ctr.cbo, salario: ctr.salario, data_admissao: ctr.dtAdm, dependentes_irrf: cad.dependentesVal };
+    if (temVinculo && Object.values(campos).every((v) => v.o === 'xml' || v.o === 'calculado')) continue;
+    trabalhadores.push({ cpf, matricula: mat ?? null, temVinculo, campos });
+  }
+  const chaves = new Map<string, { codRubr: string; ideTabRubr: string; per: string }>();
+  for (const tipo of ['S-1200', 'S-2299']) {
+    for (const ev of d.todos(tipo)) {
+      for (const it of [...desc(ev.raiz, 'itensRemun'), ...desc(ev.raiz, 'detVerbas')]) {
+        const codRubr = txt(it, 'codRubr') ?? '';
+        const ideTabRubr = txt(it, 'ideTabRubr') ?? '';
+        const per = ev.perApur ?? (ev.dataRef ?? '').slice(0, 7);
+        const k = `${codRubr}|${ideTabRubr}`;
+        if (!chaves.has(k) || per > chaves.get(k)!.per) chaves.set(k, { codRubr, ideTabRubr, per });
+      }
+    }
+  }
+  const rubricas = [];
+  for (const { codRubr, ideTabRubr, per } of chaves.values()) {
+    const r = rubrica(d, codRubr, ideTabRubr, per);
+    if (r.dsc.o === 'xml') continue;
+    rubricas.push({ codRubr, ideTabRubr, natureza: r.nat ?? null, tipo: r.tp ?? null, descricao: r.dsc, origemDados: r.encontrada ? 'recibo' : 'nenhum' });
+  }
+  rubricas.sort((a, b) => a.codRubr.localeCompare(b.codRubr, 'pt-BR', { numeric: true }));
+  trabalhadores.sort((a, b) => (a.matricula ?? a.cpf).localeCompare(b.matricula ?? b.cpf, 'pt-BR', { numeric: true }));
+  return { trabalhadores, rubricas };
+}
+
+/** Diagnóstico de cobertura: quais eventos-chave faltam para relatórios completos. */
+export function coberturaEmpresa(db: DB, empresa: string) {
+  const n = (tipo: string) =>
+    (db.prepare("SELECT count(*) n FROM eventos WHERE emp_chave = ? AND tipo = ? AND situacao = 'ativo'").get(empresa, tipo) as { n: number }).n;
+  const rubRecibo = (db.prepare('SELECT count(DISTINCT cod_rubr) n FROM rubricas_recibo WHERE emp_chave = ?').get(empresa) as { n: number }).n;
+  const emp = db.prepare('SELECT razao_social FROM empresas WHERE chave = ?').get(empresa) as { razao_social: string | null } | undefined;
+  const pend = pendenciasCadastro(db, empresa);
+  return {
+    s1000: n('S-1000'),
+    s1010: n('S-1010'),
+    rubricasDoRecibo: rubRecibo,
+    s2200: n('S-2200') + n('S-2300'),
+    razaoSocial: !!emp?.razao_social,
+    trabalhadoresSemCadastro: pend.trabalhadores.filter((t) => !t.temVinculo && t.campos.nome.o === 'ausente').length,
+    rubricasSemDescricao: pend.rubricas.filter((r) => r.descricao.o !== 'complementado').length,
   };
 }
 

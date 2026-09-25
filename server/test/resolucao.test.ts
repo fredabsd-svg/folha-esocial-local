@@ -14,11 +14,11 @@ describe('deduplicação e histórico', () => {
     const { arm, cfg } = await armComDemo();
     const r2 = await importarArquivo(arm, cfg, { nomeArquivo: 'demo-de-novo.zip', dados: await gerarZipSintetico(), origem: 'upload' });
     expect(r2.eventos.novos).toBe(0);
-    expect(r2.eventos.repetidos).toBe(79);
+    expect(r2.eventos.repetidos).toBe(89);
     expect(r2.arquivoRepetidoDe).toBe(1);
-    expect(contar(arm, 'SELECT count(*) n FROM eventos')).toBe(79);
+    expect(contar(arm, 'SELECT count(*) n FROM eventos')).toBe(89);
     expect(contar(arm, 'SELECT count(*) n FROM importacoes')).toBe(2);
-    expect(contar(arm, 'SELECT count(*) n FROM ocorrencias')).toBe(79 * 2);
+    expect(contar(arm, 'SELECT count(*) n FROM ocorrencias')).toBe(89 * 2);
     arm.fechar();
   });
 
@@ -26,7 +26,7 @@ describe('deduplicação e histórico', () => {
     const { arm, cfg } = await armComDemo();
     await importarArquivo(arm, cfg, { nomeArquivo: 'demo-de-novo.zip', dados: await gerarZipSintetico(), origem: 'upload' });
     await excluirImportacao(arm, 1);
-    expect(contar(arm, 'SELECT count(*) n FROM eventos')).toBe(79);
+    expect(contar(arm, 'SELECT count(*) n FROM eventos')).toBe(89);
     await excluirImportacao(arm, 2);
     expect(contar(arm, 'SELECT count(*) n FROM eventos')).toBe(0);
     arm.fechar();

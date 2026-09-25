@@ -21,6 +21,10 @@ export function Painel({ navegar }: { navegar: (r: string) => void }) {
     [empresa, versaoDados],
   );
   const [demo, setDemo] = useState(false);
+  const cobertura = useCarregar(
+    () => (empresa ? api.get<Cobertura>(`/api/cobertura?empresa=${encodeURIComponent(empresa)}`) : Promise.resolve(null)),
+    [empresa, versaoDados],
+  );
 
   const carregarDemo = async () => {
     setDemo(true);
@@ -79,6 +83,7 @@ export function Painel({ navegar }: { navegar: (r: string) => void }) {
           <a className="botao primario" href="#/relatorios">Gerar relatórios</a>
         </div>
       </div>
+      {cobertura.dados && <AvisoCobertura c={cobertura.dados} />}
       <div className="grade grade-4">
         <div className="cartao indicador"><span className="rotulo">Eventos ativos</span><span className="valor">{dados.geral.eventos.toLocaleString('pt-BR')}</span><span className="legenda">{dados.geral.eventosInativos} retificados/excluídos/substituídos</span></div>
         <div className="cartao indicador"><span className="rotulo">Importações</span><span className="valor">{dados.geral.importacoes}</span></div>
@@ -147,5 +152,40 @@ export function Painel({ navegar }: { navegar: (r: string) => void }) {
         </section>
       </div>
     </>
+  );
+}
+
+interface Cobertura {
+  s1000: number;
+  s1010: number;
+  rubricasDoRecibo: number;
+  s2200: number;
+  razaoSocial: boolean;
+  trabalhadoresSemCadastro: number;
+  rubricasSemDescricao: number;
+}
+
+/** Diz o que falta nos arquivos importados e como completar (portal ou complemento). */
+function AvisoCobertura({ c }: { c: Cobertura }) {
+  const itens: Array<{ nivel: 'alerta' | 'info'; texto: string }> = [];
+  if (!c.razaoSocial) itens.push({ nivel: 'info', texto: 'Razão social da empresa não informada (o S-1000 não traz esse campo): complete em Cadastros › Empresas.' });
+  if (!c.s1010 && c.rubricasDoRecibo)
+    itens.push({ nivel: 'info', texto: `Tabela de rubricas (S-1010) não importada: tipos e incidências foram lidos dos recibos do eSocial. Faltam as descrições de ${c.rubricasSemDescricao} rubrica(s) — complete ou peça “Tabela de rubricas” no eSocial Download.` });
+  if (!c.s1010 && !c.rubricasDoRecibo)
+    itens.push({ nivel: 'alerta', texto: 'Sem S-1010 e sem dados de rubricas nos recibos: proventos, descontos e bases ficam incompletos. Peça “Tabela de rubricas” no eSocial Download.' });
+  if (c.trabalhadoresSemCadastro)
+    itens.push({ nivel: 'alerta', texto: `${c.trabalhadoresSemCadastro} trabalhador(es) sem admissão (S-2200) importada: nome, cargo, salário e admissão ficam ausentes. Complete o cadastro ou peça “Eventos de um trabalhador” no eSocial Download.` });
+  if (!itens.length) return null;
+  const alerta = itens.some((i) => i.nivel === 'alerta');
+  return (
+    <div className={`aviso ${alerta ? 'alerta' : 'info'}`} role="status">
+      <div style={{ flex: 1 }}>
+        <strong>Os arquivos importados não trazem tudo o que os relatórios usam</strong>
+        <ul style={{ margin: '6px 0 10px', paddingLeft: 20 }}>
+          {itens.map((i, k) => <li key={k}>{i.texto}</li>)}
+        </ul>
+        <a className="botao pequeno" href="#/complementos">Completar cadastro</a>
+      </div>
+    </div>
   );
 }

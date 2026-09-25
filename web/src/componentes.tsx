@@ -122,9 +122,9 @@ export function GavetaOrigem() {
         </dl>
       )}
       {v.obs && <div className="aviso info"><div>{v.obs}</div></div>}
-      {v.o === 'ausente' && v.comp && (
+      {v.comp && (
         <button className="botao primario" type="button" onClick={() => { pedirComplemento({ ...v.comp!, formato: v.f }); abrirOrigem(null); }}>
-          Informar “{v.comp.rotulo}”
+          {v.o === 'ausente' ? 'Informar' : 'Informar ou corrigir'} “{v.comp.rotulo}”
         </button>
       )}
     </Gaveta>

@@ -24,6 +24,12 @@ export const cent = (v: number) => {
   return s * Math.round(oitoCasas / 1e6);
 };
 export const arred = (v: number) => cent(v) / 100;
+/** Trunca em centavos (despreza a terceira casa em diante), sem ruído de ponto flutuante. */
+export const truncar = (v: number) => {
+  const s = Math.sign(v);
+  const oitoCasas = Math.round(Math.abs(v) * 1e8);
+  return (s * Math.floor(oitoCasas / 1e6)) / 100;
+};
 export const somar = (vs: Array<number | null | undefined>) =>
   vs.reduce<number>((a, v) => a + (v == null ? 0 : cent(v)), 0) / 100;
 
@@ -166,25 +172,26 @@ export function calcularInss(base: number, competencia: string, tabelas: Tabelas
   }
   const limitada = Math.min(base, t.teto);
   let anterior = 0;
-  let total = 0;
+  const parcelas: number[] = [];
   const memoria: RefCalculo['memoria'] = [];
   for (const f of t.faixas) {
     if (limitada <= anterior) break;
     const parcela = Math.min(limitada, f.ate) - anterior;
-    const v = parcela * f.aliquota;
-    total += v;
+    // o eSocial (S-5001, vrCpSeg) trunca a contribuição de cada faixa em centavos
+    const v = truncar(parcela * f.aliquota);
+    parcelas.push(v);
     memoria.push({
-      descricao: `Faixa até ${fmtMoeda(f.ate)}: ${fmtMoeda(parcela)} × ${(f.aliquota * 100).toFixed(1).replace('.', ',')}%`,
-      valor: arred(v),
+      descricao: `Faixa até ${fmtMoeda(f.ate)}: ${fmtMoeda(parcela)} × ${(f.aliquota * 100).toFixed(1).replace('.', ',')}% (truncado em centavos)`,
+      valor: v,
     });
     anterior = f.ate;
   }
   return {
-    valor: arred(total),
+    valor: somar(parcelas),
     ref: {
       regra: 'INSS_PROGRESSIVO',
-      versao: '1',
-      formula: 'Σ (parcela da base em cada faixa × alíquota da faixa), base limitada ao teto',
+      versao: '2',
+      formula: 'Σ (parcela da base em cada faixa × alíquota da faixa, truncado em centavos), base limitada ao teto — mesmo critério do vrCpSeg do S-5001',
       parametros: { base: arred(base), teto: t.teto, baseLimitada: arred(limitada) },
       tabela: tab(t),
       memoria,

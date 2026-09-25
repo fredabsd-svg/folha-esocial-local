@@ -141,9 +141,10 @@ export function extratoMensal(cx: Contexto): Documento {
         { rotulo: 'Base do FGTS (S-5003)', val: b.fgtsBaseXml },
         { rotulo: 'FGTS (S-5003)', val: b.fgtsDepXml },
         { rotulo: 'FGTS recalculado', val: b.fgtsCalc },
-        { rotulo: 'Base do IRRF mensal (recálculo)', val: b.irrf_mensal_base ?? va('Sem rendimentos tributáveis mensais', 'moeda') },
-        { rotulo: 'IRRF mensal recalculado', val: b.irrf_mensal_calc ?? va('Sem rendimentos tributáveis mensais', 'moeda') },
-        { rotulo: 'IRRF mensal retido (rubricas)', val: b.irrf_mensal_retido ?? va('Sem rubrica de retenção', 'moeda') },
+        { rotulo: 'Base do IRRF do mês (recálculo)', val: b.irrf_mensal_base ?? 'Sem rendimentos tributáveis' },
+        { rotulo: 'IRRF do mês recalculado', val: b.irrf_mensal_calc ?? 'Sem rendimentos tributáveis' },
+        { rotulo: 'IRRF retido (rubricas)', val: b.irrf_mensal_retido && b.irrf_mensal_retido.o !== 'ausente' ? b.irrf_mensal_retido : 'Sem retenção' },
+        { rotulo: 'IRRF apurado pelo eSocial (S-5002)', val: b.irrfS5002 ?? va('S-5002 deste pagamento não importado', 'moeda') },
       ],
     });
     doc.blocos.push({ titulo: 'Conferências', tabela: tabelaConferencias(t.conferencias) });
@@ -158,9 +159,11 @@ export function extratoMensal(cx: Contexto): Documento {
 function valorCalculadoItem(t: TrabalhadorFolha, i: ItemRem): Val | null {
   const itens = t.dms.flatMap((d) => d.itens);
   if (i.rub.cp === '31' && itens.filter((x) => x.rub.cp === '31').length === 1) return t.bases.inssCalc ?? null;
-  const mapaIr: Record<string, string> = { '31': 'mensal', '33': 'ferias', '32': '13' };
-  const tipo = i.rub.ir ? mapaIr[i.rub.ir] : undefined;
-  if (tipo && itens.filter((x) => x.rub.ir === i.rub.ir).length === 1) return t.bases[`irrf_${tipo}_calc`] ?? null;
+  // IRRF do mês (31 = remuneração, 33 = férias, apurados juntos) e do 13º (32)
+  const grupo = i.rub.ir === '31' || i.rub.ir === '33' ? ['31', '33'] : i.rub.ir === '32' ? ['32'] : null;
+  if (grupo && itens.filter((x) => x.rub.ir && grupo.includes(x.rub.ir)).length === 1) {
+    return t.bases[`irrf_${grupo[0] === '32' ? '13' : 'mensal'}_calc`] ?? null;
+  }
   return null;
 }
 

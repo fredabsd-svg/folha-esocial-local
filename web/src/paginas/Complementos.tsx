@@ -3,6 +3,7 @@ import { api } from '../api';
 import { Campo, Carregando, Erro, Etiqueta, SemEmpresa, Vazio } from '../componentes';
 import { useApp, useCarregar } from '../contexto';
 import { dataHora } from '../formato';
+import { CompletarCadastro } from './CompletarCadastro';
 
 interface Complemento {
   id: number;
@@ -18,7 +19,12 @@ interface Complemento {
 
 const ESCOPOS: Record<string, { rotulo: string; referencia: string; campos: Array<[string, string]> }> = {
   empresa: { rotulo: 'Empresa', referencia: 'Inscrição (preenchida automaticamente)', campos: [['razao_social', 'Razão social']] },
-  trabalhador: { rotulo: 'Trabalhador', referencia: 'CPF do trabalhador (11 dígitos)', campos: [['nome', 'Nome do trabalhador']] },
+  trabalhador: {
+    rotulo: 'Trabalhador',
+    referencia: 'CPF do trabalhador (11 dígitos)',
+    campos: [['nome', 'Nome do trabalhador'], ['cargo', 'Cargo'], ['cbo', 'CBO'], ['salario', 'Salário mensal (R$)'], ['data_admissao', 'Data de admissão'], ['dependentes_irrf', 'Dependentes para IRRF']],
+  },
+  rubrica: { rotulo: 'Rubrica', referencia: 'código|tabela (ex.: 8781|0001)', campos: [['descricao', 'Descrição da rubrica']] },
   ferias: { rotulo: 'Férias', referencia: 'CPF|data de início do gozo (AAAA-MM-DD)', campos: [['data_aviso', 'Data do aviso de férias'], ['dias_abono', 'Dias de abono pecuniário'], ['medias', 'Médias de variáveis (R$)']] },
   rescisao: { rotulo: 'Rescisão', referencia: 'CPF|data do desligamento (AAAA-MM-DD)', campos: [['medias', 'Médias de variáveis (R$/mês)'], ['saldo_fgts', 'Saldo do FGTS para fins rescisórios (R$)']] },
 };
@@ -54,8 +60,9 @@ export function Complementos() {
           <p>Informações que não constam nos XMLs e foram informadas pelo usuário, sempre com origem e data. Nos relatórios, aparecem com o selo “COMP”. Ao informar um novo valor, o anterior fica no histórico como substituído.</p>
         </div>
       </div>
+      <CompletarCadastro />
       <section className="cartao pilha">
-        <h2>Novo complemento</h2>
+        <h2>Novo complemento avulso</h2>
         <p className="legenda">Dica: o jeito mais simples é clicar no selo “AUSENTE” de um valor na prévia do relatório — a referência já vem preenchida.</p>
         <div className="grade grade-3">
           <Campo rotulo="Escopo" id="c-esc">
